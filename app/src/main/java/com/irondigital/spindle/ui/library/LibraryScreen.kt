@@ -139,7 +139,9 @@ fun LibraryScreen(
             return@Column
         }
 
-        YoutubeImportBar(onClick = { youtubeDialogOpen = true })
+        if (libraryViewModel.importSupported) {
+            YoutubeImportBar(onClick = { youtubeDialogOpen = true })
+        }
         TabBar(selected = tab, onSelect = { tab = it })
 
         if (scanState == LibraryRepository.ScanState.EMPTY) {
