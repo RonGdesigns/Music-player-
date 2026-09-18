@@ -236,7 +236,7 @@ private fun YoutubeLinkDialog(
                     cursorBrush = SolidColor(Lamp.Bright),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(Corner.s))
+                        .clip(RoundedCornerShape(Corner.edge))
                         .background(Ground.Deep)
                         .padding(Space.m),
                     decorationBox = { inner ->
