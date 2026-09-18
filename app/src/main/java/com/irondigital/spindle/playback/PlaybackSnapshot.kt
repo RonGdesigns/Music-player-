@@ -63,6 +63,12 @@ data class PlaybackSnapshot(
         return queue.withIndex().drop(currentIndex).take(count)
     }
 
+    /** How many tracks are queued beyond what [upcoming] returned. */
+    fun remainingAfter(count: Int): Int {
+        if (currentIndex < 0 || queue.isEmpty()) return 0
+        return (queue.size - currentIndex - count).coerceAtLeast(0)
+    }
+
     fun toJson(): String = JSONObject().apply {
         put("isPlaying", isPlaying)
         put("currentMediaId", currentMediaId ?: JSONObject.NULL)

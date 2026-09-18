@@ -487,6 +487,8 @@ class NowPlayingWidget : GlanceAppWidget() {
         val upcoming = snapshot.upcoming(QUEUE_WINDOW)
         if (upcoming.isEmpty()) return
 
+        val remaining = snapshot.remainingAfter(QUEUE_WINDOW)
+
         LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
             items(upcoming, itemId = { it.index.toLong() }) { indexed ->
                 QueueRow(
@@ -494,6 +496,23 @@ class NowPlayingWidget : GlanceAppWidget() {
                     queueIndex = indexed.index,
                     isCurrent = indexed.index == snapshot.currentIndex,
                 )
+            }
+
+            // Said out loud rather than left to look like the end of the queue.
+            // A list that simply stops is indistinguishable from a bug — which
+            // is exactly how the old limit read.
+            if (remaining > 0) {
+                item {
+                    Text(
+                        text = "$remaining more — open Spindle",
+                        style = TextStyle(color = ColorProvider(Steel.Dim), fontSize = 12.sp),
+                        modifier = GlanceModifier
+                            .fillMaxWidth()
+                            .height(34.dp)
+                            .clickable(actionStartActivity<MainActivity>())
+                            .padding(horizontal = 2.dp, vertical = 8.dp),
+                    )
+                }
             }
         }
     }
@@ -561,8 +580,19 @@ class NowPlayingWidget : GlanceAppWidget() {
         private val EXTRA_CONTROLS_MIN_WIDTH = 300.dp
         private val TINY_HEIGHT = 90.dp
 
-        /** How far ahead the widget lists. Beyond this, open the app. */
-        private const val QUEUE_WINDOW = 40
+        /**
+         * How far ahead the widget lists.
+         *
+         * Not a taste decision. Everything a widget draws crosses a Binder
+         * transaction with a hard limit around 1MB, and from Android 12 a
+         * Glance list puts every one of its rows in that payload rather than
+         * fetching them lazily — so a queue of five thousand tracks cannot be
+         * handed over whole, and a widget whose payload is too large does not
+         * render at all. Two hundred is far enough to scroll through an album,
+         * a playlist or an evening's listening, and leaves generous room under
+         * the limit. Past it the list says so and offers the app.
+         */
+        private const val QUEUE_WINDOW = 200
 
         private val BAR_SIZE = DpSize(250.dp, 96.dp)
         private val CARD_SIZE = DpSize(250.dp, 150.dp)

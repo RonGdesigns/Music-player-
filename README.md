@@ -364,6 +364,12 @@ measured one.
 
 ## Known limits
 
+- The widget's queue lists 200 tracks ahead of what is playing, and says how
+  many more there are. Everything a widget draws crosses a Binder transaction
+  with a hard limit, and from Android 12 a Glance list puts every row in that
+  payload rather than fetching them lazily — a queue of thousands cannot be
+  handed over whole, and a widget whose payload is too large silently fails to
+  render at all.
 - The widget's progress bar shows the position as of the last playback event
   rather than ticking every second. A per-second widget update costs a wakeup
   per second for a bar most people do not watch.
