@@ -4,7 +4,10 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,7 +34,11 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.irondigital.spindle.data.lyrics.Lyrics
 import com.irondigital.spindle.data.lyrics.LyricsSource
+import com.irondigital.spindle.ui.LyricsLookupState
 import com.irondigital.spindle.ui.PlayerViewModel
 import com.irondigital.spindle.ui.theme.Ground
 import com.irondigital.spindle.ui.theme.Ink
@@ -58,6 +65,9 @@ fun LyricsPane(
     val playback by playerViewModel.playback.collectAsStateWithLifecycle()
     val track by playerViewModel.currentTrack.collectAsStateWithLifecycle()
 
+    val lookup by playerViewModel.lyricsLookup.collectAsStateWithLifecycle()
+    val settings by playerViewModel.settings.collectAsStateWithLifecycle()
+
     var editing by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
@@ -81,7 +91,11 @@ fun LyricsPane(
         if (lyrics.isEmpty) {
             NoLyrics(
                 hasTrack = track != null,
+                lookupEnabled = settings.lyricsLookupEnabled,
+                lookup = lookup,
                 onAdd = { editing = true },
+                onLookUp = { track?.let(playerViewModel::lookUpLyrics) },
+                onEnableLookup = { track?.let(playerViewModel::enableLookupAndSearch) },
             )
         } else {
             LazyColumn(
@@ -122,7 +136,7 @@ fun LyricsPane(
                                 .fillMaxWidth()
                                 .then(
                                     if (lyrics.synced && line.timeMs >= 0) {
-                                        Modifier.clickable { onSeek(line.timeMs) }
+                                        Modifier.clickable { onSeek(lyrics.seekTargetFor(line)) }
                                     } else {
                                         Modifier
                                     }
@@ -135,6 +149,20 @@ fun LyricsPane(
                 item {
                     Spacer(Modifier.height(Space.l))
                     LyricsSourceNote(lyrics.source, lyrics.synced, onEdit = { editing = true })
+                }
+            }
+
+            // Pinned rather than placed in the list. Judging a timing
+            // correction means watching the lines move while you nudge it, so
+            // the control cannot be something that scrolls out from under you.
+            if (lyrics.synced) {
+                track?.let { current ->
+                    TimingNudge(
+                        offsetMs = lyrics.offsetMs,
+                        onNudge = { playerViewModel.nudgeLyricsOffset(current, it) },
+                        onReset = { playerViewModel.setLyricsOffset(current, 0L) },
+                        modifier = Modifier.align(Alignment.BottomEnd),
+                    )
                 }
             }
         }
@@ -154,8 +182,73 @@ fun LyricsPane(
     }
 }
 
+/**
+ * Shifts the lyrics against the music.
+ *
+ * Downloaded LRC is routinely a fraction of a second out against a particular
+ * encode, and being consistently early is far more distracting than having no
+ * lyrics at all. Tenths, because that is the resolution at which the drift
+ * stops being visible; the readout is the current correction and tapping it
+ * puts everything back.
+ */
 @Composable
-private fun NoLyrics(hasTrack: Boolean, onAdd: () -> Unit) {
+private fun TimingNudge(
+    offsetMs: Long,
+    onNudge: (Long) -> Unit,
+    onReset: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .padding(Space.m)
+            .background(Ground.Plate.copy(alpha = 0.92f))
+            .padding(horizontal = Space.xs, vertical = Space.xxs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        NudgeButton("-", "Show lyrics earlier") { onNudge(-Lyrics.OFFSET_STEP_MS) }
+        Text(
+            text = formatOffset(offsetMs),
+            style = SpindleType.DataEmphasis,
+            color = if (offsetMs == 0L) Steel.Dim else Lamp.Bright,
+            modifier = Modifier
+                .clickable(onClick = onReset)
+                .padding(horizontal = Space.s, vertical = Space.xs),
+        )
+        NudgeButton("+", "Show lyrics later") { onNudge(Lyrics.OFFSET_STEP_MS) }
+    }
+}
+
+@Composable
+private fun NudgeButton(label: String, description: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(Space.tap)
+            .clickable(onClick = onClick)
+            .semantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, style = SpindleType.DataLarge, color = Steel.Bright)
+    }
+}
+
+private fun formatOffset(offsetMs: Long): String {
+    val seconds = offsetMs / 1000.0
+    return when {
+        offsetMs == 0L -> "0.0s"
+        offsetMs > 0 -> String.format(java.util.Locale.US, "+%.1fs", seconds)
+        else -> String.format(java.util.Locale.US, "%.1fs", seconds)
+    }
+}
+
+@Composable
+private fun NoLyrics(
+    hasTrack: Boolean,
+    lookupEnabled: Boolean,
+    lookup: LyricsLookupState,
+    onAdd: () -> Unit,
+    onLookUp: () -> Unit,
+    onEnableLookup: () -> Unit,
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -170,21 +263,93 @@ private fun NoLyrics(hasTrack: Boolean, onAdd: () -> Unit) {
             )
             Spacer(Modifier.height(Space.s))
             Text(
-                text = "Spindle reads a .lrc file sitting next to the track, or " +
-                    "lyrics stored in the track's own tags. It does not go looking " +
-                    "online, so nothing about what you play leaves the device.",
+                text = when {
+                    lookupEnabled ->
+                        "Spindle reads a .lrc file beside the track and lyrics in " +
+                            "the track's own tags, then asks the online database."
+                    else ->
+                        "Spindle reads a .lrc file sitting next to the track, or " +
+                            "lyrics stored in the track's own tags. Looking online " +
+                            "is off, so nothing about what you play leaves the device."
+                },
                 style = SpindleType.Body,
                 color = Steel.Dim,
             )
+
+            when (lookup) {
+                LyricsLookupState.Searching -> {
+                    Spacer(Modifier.height(Space.m))
+                    Text("Looking…", style = SpindleType.Secondary, color = Lamp.Bright)
+                }
+                LyricsLookupState.NotFound -> {
+                    Spacer(Modifier.height(Space.m))
+                    Text(
+                        text = "The database has nothing for this one.",
+                        style = SpindleType.Secondary,
+                        color = Steel.Dim,
+                    )
+                }
+                is LyricsLookupState.Failed -> {
+                    Spacer(Modifier.height(Space.m))
+                    // Named rather than generic: "could not reach the service"
+                    // and "this song has no lyrics" call for different responses.
+                    Text(
+                        text = lookup.reason,
+                        style = SpindleType.Secondary,
+                        color = Steel.Dim,
+                    )
+                    Spacer(Modifier.height(Space.s))
+                    Text(
+                        text = "Try again",
+                        style = SpindleType.RowTitle,
+                        color = Lamp.Bright,
+                        modifier = Modifier
+                            .clickable(onClick = onLookUp)
+                            .padding(vertical = Space.xs),
+                    )
+                }
+                LyricsLookupState.Idle -> Unit
+            }
+
             if (hasTrack) {
                 Spacer(Modifier.height(Space.l))
-                Box(
-                    modifier = Modifier
-                        .background(Ground.Raised)
-                        .clickable(onClick = onAdd)
-                        .padding(horizontal = Space.l, vertical = Space.s),
-                ) {
-                    Text("Paste lyrics", style = SpindleType.RowTitle, color = Lamp.Bright)
+                Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+                    Box(
+                        modifier = Modifier
+                            .background(Ground.Raised)
+                            .clickable(onClick = onAdd)
+                            .padding(horizontal = Space.l, vertical = Space.s),
+                    ) {
+                        Text("Paste lyrics", style = SpindleType.RowTitle, color = Lamp.Bright)
+                    }
+
+                    if (lookup != LyricsLookupState.Searching) {
+                        Box(
+                            modifier = Modifier
+                                .background(Ground.Raised)
+                                // Turning the setting on and using it are the
+                                // same gesture, and this is the moment where
+                                // saying what it sends actually means something.
+                                .clickable(onClick = if (lookupEnabled) onLookUp else onEnableLookup)
+                                .padding(horizontal = Space.l, vertical = Space.s),
+                        ) {
+                            Text(
+                                text = if (lookupEnabled) "Look online" else "Look online once",
+                                style = SpindleType.RowTitle,
+                                color = Lamp.Bright,
+                            )
+                        }
+                    }
+                }
+                if (!lookupEnabled) {
+                    Spacer(Modifier.height(Space.s))
+                    Text(
+                        text = "Sends the title, artist and length of this track to " +
+                            "an open lyrics database, and turns lookup on for future " +
+                            "tracks. Settings has the switch.",
+                        style = SpindleType.Data,
+                        color = Steel.Dim,
+                    )
                 }
             }
         }
@@ -197,6 +362,7 @@ private fun LyricsSourceNote(source: LyricsSource, synced: Boolean, onEdit: () -
         LyricsSource.USER -> "Added by you"
         LyricsSource.SIDECAR_LRC -> if (synced) "From the .lrc beside this file" else "From a text file beside this track"
         LyricsSource.EMBEDDED_TAG -> if (synced) "Synced, from this file's tags" else "From this file's tags"
+        LyricsSource.ONLINE -> if (synced) "Synced, found online and kept" else "Found online and kept"
         LyricsSource.NONE -> ""
     }
     Column {

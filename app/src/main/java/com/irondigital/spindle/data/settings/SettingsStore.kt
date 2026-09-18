@@ -72,6 +72,11 @@ data class Settings(
     /** Applied on top of the file's own ReplayGain value. */
     val normalizationPreampDb: Int = 0,
     val keepScreenOnWithLyrics: Boolean = true,
+    /**
+     * Look lyrics up online when a track has none locally. Off until asked
+     * for: it is the only thing in the app that sends anything anywhere.
+     */
+    val lyricsLookupEnabled: Boolean = false,
     val librarySort: LibrarySort = LibrarySort.TITLE,
     val mostPlayedSize: Int = 100,
 )
@@ -98,6 +103,7 @@ class SettingsStore(private val context: Context) {
                 ?: NormalizationMode.OFF,
             normalizationPreampDb = p[Keys.NORMALIZATION_PREAMP] ?: 0,
             keepScreenOnWithLyrics = p[Keys.KEEP_SCREEN_ON] ?: true,
+            lyricsLookupEnabled = p[Keys.LYRICS_LOOKUP] ?: false,
             librarySort = p[Keys.LIBRARY_SORT]?.let { runCatching { LibrarySort.valueOf(it) }.getOrNull() }
                 ?: LibrarySort.TITLE,
             mostPlayedSize = p[Keys.MOST_PLAYED_SIZE] ?: 100,
@@ -119,6 +125,7 @@ class SettingsStore(private val context: Context) {
     suspend fun setNormalizationMode(mode: NormalizationMode) = put(Keys.NORMALIZATION, mode.name)
     suspend fun setNormalizationPreamp(db: Int) = put(Keys.NORMALIZATION_PREAMP, db.coerceIn(-15, 15))
     suspend fun setKeepScreenOnWithLyrics(enabled: Boolean) = put(Keys.KEEP_SCREEN_ON, enabled)
+    suspend fun setLyricsLookupEnabled(enabled: Boolean) = put(Keys.LYRICS_LOOKUP, enabled)
     suspend fun setLibrarySort(sort: LibrarySort) = put(Keys.LIBRARY_SORT, sort.name)
     suspend fun setMostPlayedSize(size: Int) = put(Keys.MOST_PLAYED_SIZE, size.coerceIn(10, 500))
 
@@ -142,6 +149,7 @@ class SettingsStore(private val context: Context) {
         val NORMALIZATION = stringPreferencesKey("normalization_mode")
         val NORMALIZATION_PREAMP = intPreferencesKey("normalization_preamp_db")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on_lyrics")
+        val LYRICS_LOOKUP = booleanPreferencesKey("lyrics_lookup_enabled")
         val LIBRARY_SORT = stringPreferencesKey("library_sort")
         val MOST_PLAYED_SIZE = intPreferencesKey("most_played_size")
     }

@@ -80,6 +80,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setPreamp(db: Int) = edit { store.setNormalizationPreamp(db) }
     fun rescanGain() = edit { app.gains.clearCache() }
     fun setKeepScreenOn(enabled: Boolean) = edit { store.setKeepScreenOnWithLyrics(enabled) }
+    fun setLyricsLookup(enabled: Boolean) = edit { store.setLyricsLookupEnabled(enabled) }
     fun setSort(sort: LibrarySort) = edit { store.setLibrarySort(sort) }
 
     fun resetStatistics() = edit { app.stats.resetEverything() }
@@ -393,6 +394,38 @@ fun SettingsScreen(
                         description = "Only while the lyrics pane is open.",
                         checked = settings.keepScreenOnWithLyrics,
                         onCheckedChange = viewModel::setKeepScreenOn,
+                    )
+                }
+            }
+
+            item {
+                SettingsSection("Lyrics") {
+                    Text(
+                        text = "Spindle reads a .lrc file sitting beside a track and " +
+                            "lyrics stored in the track's own tags. Both are local and " +
+                            "always on.",
+                        style = SpindleType.Secondary,
+                        color = Steel.Dim,
+                    )
+                    Spacer(Modifier.height(Space.m))
+                    SwitchRow(
+                        title = "Look up lyrics online",
+                        description = "When a track has none of its own, ask an open " +
+                            "lyrics database. This is the only part of Spindle that " +
+                            "sends anything anywhere: the title, the artist and the " +
+                            "length of that one track go out, nothing else, and what " +
+                            "comes back is saved on the phone so a track is only " +
+                            "looked up once. Off unless you turn it on.",
+                        checked = settings.lyricsLookupEnabled,
+                        onCheckedChange = viewModel::setLyricsLookup,
+                    )
+                    Spacer(Modifier.height(Space.s))
+                    Text(
+                        text = "Lyrics that arrive a fraction of a second early or " +
+                            "late can be nudged into place from the lyrics pane, and " +
+                            "the correction is remembered per track.",
+                        style = SpindleType.Data,
+                        color = Steel.Dim,
                     )
                 }
             }

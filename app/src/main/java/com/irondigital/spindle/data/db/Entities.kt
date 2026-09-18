@@ -62,9 +62,16 @@ data class PlaylistItem(
 )
 
 /**
- * Lyrics the user pasted or edited by hand. Sidecar .lrc files and embedded
- * tags are read live from disk and never copied in here — this table only holds
- * what the user typed, so it is always the highest-priority source.
+ * What Spindle knows about a track's lyrics that the file does not say.
+ *
+ * Three things, and they are deliberately in one row. [content] is lyrics the
+ * user pasted or that were fetched online and kept — sidecar .lrc files and
+ * embedded tags are still read live from disk and never copied in here.
+ * [offsetMs] is the user's timing correction, which applies to lyrics from
+ * *any* source, so a row can exist carrying only an offset. [source] records
+ * which of those produced the content, so "added by you" and "fetched" stay
+ * distinguishable, and a lookup that definitively found nothing is remembered
+ * rather than retried on every play.
  */
 @Entity(tableName = "lyrics_overrides")
 data class LyricsOverride(
@@ -72,7 +79,17 @@ data class LyricsOverride(
     val content: String,
     val synced: Boolean,
     val updatedAt: Long,
-)
+    val offsetMs: Long = 0,
+    val source: String = SOURCE_USER,
+) {
+    companion object {
+        const val SOURCE_USER = "USER"
+        const val SOURCE_ONLINE = "ONLINE"
+
+        /** A lookup that definitively came back empty. Not a network failure. */
+        const val SOURCE_ONLINE_NONE = "ONLINE_NONE"
+    }
+}
 
 /**
  * ReplayGain values read out of a file's tags, cached so the file is opened once

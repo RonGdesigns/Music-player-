@@ -4,7 +4,7 @@ An offline music player for Android, built around the thing Samsung Music
 removed: **a home-screen widget that shows the now-playing queue and lets you
 reach into it.**
 
-Everything is local. No account, no sync, no network calls of any kind — the
+Everything is local by default. No account, no sync — the
 app has no internet permission at all. Your library, your play counts and your
 playlists never leave the device.
 
@@ -106,14 +106,31 @@ Each is a live query, so they are correct the moment a track finishes.
 
 **Lyrics**
 
-Read from local sources only, in priority order:
+Resolved in priority order:
 1. Lyrics you typed or pasted
 2. A `.lrc` file sitting beside the audio file (synced, with timestamps)
 3. The file's own tags — ID3v2 `USLT`/`SYLT` for MP3, Vorbis comments for FLAC,
    the iTunes lyrics atom for M4A
+4. **An online lookup, off by default.** When switched on, a track with no
+   lyrics of its own is looked up in LRCLIB, an open database with no account
+   and no key. What leaves the device is that track's title, artist and length —
+   nothing else — and whatever comes back is saved on the phone, so a track is
+   only ever looked up once. A definite "no lyrics for this" is remembered too;
+   a network failure is not, because one busy moment on someone else's server
+   should not permanently deny a track its lyrics.
+
+   Matching is strict about length. A live cut, a radio edit and an extended mix
+   are all the same title by the same artist, and duration is the only thing
+   that separates them — synced lyrics from the wrong take look correct and then
+   drift, which is worse than showing none.
 
 Synced lyrics highlight the current line and each line is tappable to seek.
-Nothing is fetched online, so nothing about what you play is sent anywhere.
+
+**Timing correction.** Downloaded LRC is routinely a fraction of a second out
+against a particular encode, and being consistently early is more distracting
+than having no lyrics at all. The lyrics pane has a nudge in tenths of a second;
+the correction is saved per track, applies to lyrics from any source including
+those inside the file, and tapping the readout resets it.
 
 **Now playing**
 - Cover art with a visualizer behind it (see below)
@@ -374,10 +391,11 @@ measured one.
 - A backup restores history for tracks that are on the phone. Entries it cannot
   match are left in the file untouched — restore again once those files are back
   and it will find them.
-- Spindle plays files you already have. It has no downloader and no network
-  permission — bringing audio onto the device is something you do with whatever
-  tool you prefer, and Spindle picks it up from there via share, import, or the
-  library scan.
+- Two features reach the network, and only those: the link converter, and the
+  optional lyrics lookup. Your library, play counts, playlists and listening
+  history are never sent anywhere by either of them. Turn the lyrics lookup off
+  in Settings and the only thing left that uses the network is a conversion you
+  started yourself.
 
 ## License
 

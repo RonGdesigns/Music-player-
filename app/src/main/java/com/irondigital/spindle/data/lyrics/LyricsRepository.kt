@@ -9,47 +9,133 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Resolves lyrics for a track from local sources only, in priority order:
- * what the user typed, a sidecar .lrc, then the file's own tags.
+ * Resolves lyrics for a track, in priority order: what is stored for it, a
+ * sidecar .lrc, then the file's own tags.
  *
- * Nothing here touches the network. Local-library listeners tend to have their
- * lyrics already, either as .lrc files or baked into the tags, and a player
- * that quietly ships every filename you own to a lyrics API in order to guess
- * is not a trade worth making by default.
+ * The first three are local and always run. Looking online is last, optional,
+ * and off until the user turns it on — a player that quietly ships every
+ * filename you own to a lyrics API is not a default worth having. When it is
+ * on, what goes out is the title, the artist and the length, and whatever comes
+ * back is saved locally so a track is only ever looked up once.
+ *
+ * The user's timing correction is separate from all of that. It is stored per
+ * track and applied to lyrics from any source, including lyrics that live
+ * inside the file and are never copied here.
  */
 class LyricsRepository(
     private val context: Context,
     private val lyricsDao: LyricsDao,
+    private val onlineClient: OnlineLyricsClient = OnlineLyricsClient(),
 ) {
 
+    /**
+     * Local sources only. [lookUpOnline] is the separate, explicit step.
+     */
     suspend fun load(track: Track): Lyrics = withContext(Dispatchers.IO) {
-        userOverride(track)
+        val stored = lyricsDao.get(track.mediaId)
+        val offsetMs = stored?.offsetMs ?: 0L
+
+        val found = storedLyrics(stored)
             ?: sidecar(track)
             ?: embedded(track)
             ?: Lyrics.NONE
+
+        found.copy(offsetMs = offsetMs)
     }
 
-    suspend fun saveOverride(track: Track, content: String) {
-        val parsed = LrcParser.parse(content)
+    /**
+     * Whether a lookup for this track would tell us anything new. False once
+     * one has already answered, so a track with no lyrics anywhere is asked
+     * about once rather than on every play.
+     */
+    suspend fun alreadyLookedUp(track: Track): Boolean =
+        lyricsDao.get(track.mediaId)?.source.let {
+            it == LyricsOverride.SOURCE_ONLINE || it == LyricsOverride.SOURCE_ONLINE_NONE
+        }
+
+    /**
+     * Asks the online database, and keeps whatever it says.
+     *
+     * A definite "nothing here" is recorded so it is not asked again. A network
+     * failure is not — one busy moment on someone else's server must not
+     * permanently deny a track its lyrics.
+     */
+    suspend fun lookUpOnline(track: Track): LyricsLookup = withContext(Dispatchers.IO) {
+        val result = onlineClient.fetch(
+            title = track.title,
+            artist = track.artist,
+            album = track.album,
+            durationMs = track.durationMs,
+        )
+
+        when (result) {
+            is LyricsLookup.Found -> store(
+                track = track,
+                content = result.lrc,
+                synced = result.synced,
+                source = LyricsOverride.SOURCE_ONLINE,
+            )
+            LyricsLookup.NotFound -> store(
+                track = track,
+                content = "",
+                synced = false,
+                source = LyricsOverride.SOURCE_ONLINE_NONE,
+            )
+            is LyricsLookup.Failed -> Unit
+        }
+        result
+    }
+
+    suspend fun setOffset(track: Track, offsetMs: Long) {
+        lyricsDao.setOffset(
+            track.mediaId,
+            offsetMs.coerceIn(-Lyrics.MAX_OFFSET_MS, Lyrics.MAX_OFFSET_MS),
+        )
+    }
+
+    private suspend fun store(track: Track, content: String, synced: Boolean, source: String) {
+        val existing = lyricsDao.get(track.mediaId)
         lyricsDao.upsert(
             LyricsOverride(
                 mediaId = track.mediaId,
                 content = content,
-                synced = parsed?.synced == true,
+                synced = synced,
                 updatedAt = System.currentTimeMillis(),
+                // A correction the user already made survives new lyrics
+                // arriving, because it was a correction to this recording.
+                offsetMs = existing?.offsetMs ?: 0L,
+                source = source,
             )
+        )
+    }
+
+    suspend fun saveOverride(track: Track, content: String) {
+        store(
+            track = track,
+            content = content,
+            synced = LrcParser.parse(content)?.synced == true,
+            source = LyricsOverride.SOURCE_USER,
         )
     }
 
     suspend fun clearOverride(track: Track) = lyricsDao.delete(track.mediaId)
 
-    private suspend fun userOverride(track: Track): Lyrics? {
-        val saved = lyricsDao.get(track.mediaId) ?: return null
-        LrcParser.parse(saved.content)?.let { return it.copy(source = LyricsSource.USER) }
+    /**
+     * Lyrics held for this track, if any. A row may exist carrying nothing but
+     * a timing correction, or the record of a lookup that found nothing — both
+     * mean there is no content here, not that the row should win.
+     */
+    private fun storedLyrics(saved: LyricsOverride?): Lyrics? {
+        if (saved == null || saved.content.isBlank()) return null
+        val source =
+            if (saved.source == LyricsOverride.SOURCE_ONLINE) LyricsSource.ONLINE
+            else LyricsSource.USER
+
+        LrcParser.parse(saved.content)?.let { return it.copy(source = source) }
         return Lyrics(
             lines = saved.content.lines().map { LyricLine(-1L, it.trim()) },
             synced = false,
-            source = LyricsSource.USER,
+            source = source,
             raw = saved.content,
         )
     }

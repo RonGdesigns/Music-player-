@@ -205,6 +205,29 @@ interface LyricsDao {
     @Upsert
     suspend fun upsert(override: LyricsOverride)
 
+    @Query("UPDATE lyrics_overrides SET offsetMs = :offsetMs WHERE mediaId = :mediaId")
+    suspend fun updateOffset(mediaId: String, offsetMs: Long): Int
+
+    /**
+     * An offset can apply to lyrics that live in the file, where there is no
+     * row yet — so this makes one carrying nothing but the correction.
+     */
+    @Transaction
+    suspend fun setOffset(mediaId: String, offsetMs: Long) {
+        if (updateOffset(mediaId, offsetMs) == 0) {
+            upsert(
+                LyricsOverride(
+                    mediaId = mediaId,
+                    content = "",
+                    synced = false,
+                    updatedAt = System.currentTimeMillis(),
+                    offsetMs = offsetMs,
+                    source = LyricsOverride.SOURCE_USER,
+                )
+            )
+        }
+    }
+
     @Query("DELETE FROM lyrics_overrides WHERE mediaId = :mediaId")
     suspend fun delete(mediaId: String)
 }

@@ -14,6 +14,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
 import com.irondigital.spindle.data.lyrics.Lyrics
+import com.irondigital.spindle.data.lyrics.LyricsLookup
 import com.irondigital.spindle.data.model.Track
 import com.irondigital.spindle.data.settings.Settings
 import com.irondigital.spindle.playback.PlaybackService
@@ -57,6 +58,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private val _lyrics = MutableStateFlow(Lyrics.NONE)
     val lyrics: StateFlow<Lyrics> = _lyrics.asStateFlow()
 
+    private val _lyricsLookup = MutableStateFlow<LyricsLookupState>(LyricsLookupState.Idle)
+    val lyricsLookup: StateFlow<LyricsLookupState> = _lyricsLookup.asStateFlow()
+
     val settings: StateFlow<Settings> = app.settingsStore.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, Settings())
 
@@ -82,7 +86,21 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         currentTrack
             .onEach { track ->
                 _lyrics.value = Lyrics.NONE
-                if (track != null) _lyrics.value = app.lyrics.load(track)
+                _lyricsLookup.value = LyricsLookupState.Idle
+                if (track == null) return@onEach
+
+                _lyrics.value = app.lyrics.load(track)
+
+                // Only when the user has switched lookup on, only when the file
+                // itself had nothing, and only once per track — the repository
+                // remembers an answer of "there are none" so a track without
+                // lyrics is not asked about every time it plays.
+                if (_lyrics.value.isEmpty &&
+                    settings.value.lyricsLookupEnabled &&
+                    !app.lyrics.alreadyLookedUp(track)
+                ) {
+                    lookUpLyrics(track)
+                }
             }
             .launchIn(viewModelScope)
 
@@ -253,6 +271,51 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /**
+     * Asks the online database for this track's lyrics.
+     *
+     * A failure is reported rather than swallowed, because the difference
+     * between "this song has no lyrics anywhere" and "the server was busy"
+     * decides whether trying again is worth the user's time.
+     */
+    fun lookUpLyrics(track: Track) {
+        if (_lyricsLookup.value == LyricsLookupState.Searching) return
+        viewModelScope.launch {
+            _lyricsLookup.value = LyricsLookupState.Searching
+            _lyricsLookup.value = when (val result = app.lyrics.lookUpOnline(track)) {
+                is LyricsLookup.Found -> {
+                    _lyrics.value = app.lyrics.load(track)
+                    LyricsLookupState.Idle
+                }
+                LyricsLookup.NotFound -> LyricsLookupState.NotFound
+                is LyricsLookup.Failed -> LyricsLookupState.Failed(result.reason)
+            }
+        }
+    }
+
+    /** Turns lookup on and immediately uses it, which is the same gesture. */
+    fun enableLookupAndSearch(track: Track) {
+        viewModelScope.launch {
+            app.settingsStore.setLyricsLookupEnabled(true)
+            lookUpLyrics(track)
+        }
+    }
+
+    /**
+     * Nudges the lyric timing. Applied live so the effect is visible while the
+     * track plays, which is the only way to judge whether it is right.
+     */
+    fun nudgeLyricsOffset(track: Track, deltaMs: Long) {
+        val target = (_lyrics.value.offsetMs + deltaMs)
+            .coerceIn(-Lyrics.MAX_OFFSET_MS, Lyrics.MAX_OFFSET_MS)
+        setLyricsOffset(track, target)
+    }
+
+    fun setLyricsOffset(track: Track, offsetMs: Long) {
+        _lyrics.value = _lyrics.value.copy(offsetMs = offsetMs)
+        viewModelScope.launch { app.lyrics.setOffset(track, offsetMs) }
+    }
+
     // ---------------------------------------------------------------- state
 
     private inner class ControllerListener : Player.Listener {
@@ -337,6 +400,14 @@ data class PlaybackUiState(
     val hasContent: Boolean get() = mediaId != null
     val progress: Float
         get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+}
+
+/** What a lyrics lookup is doing, for the one line the pane shows about it. */
+sealed interface LyricsLookupState {
+    data object Idle : LyricsLookupState
+    data object Searching : LyricsLookupState
+    data object NotFound : LyricsLookupState
+    data class Failed(val reason: String) : LyricsLookupState
 }
 
 @OptIn(UnstableApi::class)

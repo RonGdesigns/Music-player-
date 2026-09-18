@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TrackGain::class,
         TrackEdit::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class SpindleDatabase : RoomDatabase() {
@@ -75,9 +75,25 @@ abstract class SpindleDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Adds the lyrics timing correction and the record of where a track's
+         * lyrics came from. Both default in place, so existing rows stay valid
+         * and nothing has to be rewritten.
+         */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `lyrics_overrides` ADD COLUMN `offsetMs` INTEGER NOT NULL DEFAULT 0"
+                )
+                db.execSQL(
+                    "ALTER TABLE `lyrics_overrides` ADD COLUMN `source` TEXT NOT NULL DEFAULT 'USER'"
+                )
+            }
+        }
+
         fun build(context: Context): SpindleDatabase =
             Room.databaseBuilder(context.applicationContext, SpindleDatabase::class.java, "spindle.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
     }
 }
