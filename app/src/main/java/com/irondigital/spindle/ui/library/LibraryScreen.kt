@@ -506,7 +506,7 @@ private fun HomeTab(
                                     }
                             ) {
                                 Artwork(
-                                    uri = track.albumArtUri?.toString(),
+                                    uri = track.artUri.toString(),
                                     size = 116,
                                     contentDescription = track.album,
                                 )
@@ -542,7 +542,7 @@ private fun MostPlayedCell(
     onPlay: () -> Unit,
     onShuffle: () -> Unit,
 ) {
-    val leadArt = tracks.firstOrNull()?.albumArtUri?.toString()
+    val leadArt = tracks.firstOrNull()?.artUri?.toString()
 
     Box(
         modifier = Modifier

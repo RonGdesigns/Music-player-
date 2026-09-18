@@ -23,6 +23,8 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -34,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,11 +66,15 @@ fun TrackActionSheet(
     onToggleFavorite: () -> Unit,
     onAddToPlaylist: (Long) -> Unit,
     onEditDetails: (() -> Unit)? = null,
+    onStartSelection: (() -> Unit)? = null,
     onGoToAlbum: (() -> Unit)? = null,
     onGoToArtist: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     var choosingPlaylist by remember { mutableStateOf(false) }
+    // Sharing needs nothing but the track and a context, so it is not plumbed
+    // through a callback the way the actions that touch the library are.
+    val context = LocalContext.current
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -139,6 +146,21 @@ fun TrackActionSheet(
                         label = "Add to a playlist",
                         onClick = { choosingPlaylist = true },
                     )
+                    ActionRow(
+                        icon = Icons.Filled.Share,
+                        label = "Share",
+                        description = "Send the file to messages, or anywhere else",
+                        onClick = { ShareTracks.share(context, track); onDismiss() },
+                    )
+                    if (onStartSelection != null) {
+                        ActionRow(
+                            icon = Icons.Filled.SelectAll,
+                            label = "Select several",
+                            description = "Pick a run of tracks to queue, share or " +
+                                "drop into a playlist together",
+                            onClick = { onStartSelection(); onDismiss() },
+                        )
+                    }
                     if (onEditDetails != null) {
                         ActionRow(
                             icon = Icons.Filled.Edit,

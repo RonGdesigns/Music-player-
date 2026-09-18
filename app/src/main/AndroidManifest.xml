@@ -95,6 +95,18 @@
             </intent-filter>
         </service>
 
+        <!--
+          Serves cover art that lives inside the audio file, which MediaStore
+          often does not extract. Not exported: a content URI is understood by
+          Coil, the widget, the notification and Android Auto without any other
+          app needing to reach it.
+        -->
+        <provider
+            android:name=".data.media.ArtworkProvider"
+            android:authorities="${applicationId}.artwork"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
         <receiver
             android:name=".widget.NowPlayingWidgetReceiver"
             android:exported="true"

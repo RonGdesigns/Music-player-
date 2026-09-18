@@ -24,6 +24,14 @@ class AutoMediaLibrary(private val app: SpindleApp) {
     fun item(mediaId: String): MediaItem? = when {
         mediaId == ROOT_ID -> root()
         mediaId == SONGS_ID -> browsable(SONGS_ID, "Songs")
+        mediaId == MOST_PLAYED_ID ->
+            browsable(MOST_PLAYED_ID, "Most Played", mediaType = MediaMetadata.MEDIA_TYPE_PLAYLIST)
+        mediaId == FAVORITES_ID ->
+            browsable(FAVORITES_ID, "Favorites", mediaType = MediaMetadata.MEDIA_TYPE_PLAYLIST)
+        mediaId == RECENT_ID ->
+            browsable(RECENT_ID, "Recently Played", mediaType = MediaMetadata.MEDIA_TYPE_PLAYLIST)
+        mediaId == ADDED_ID ->
+            browsable(ADDED_ID, "Recently Added", mediaType = MediaMetadata.MEDIA_TYPE_PLAYLIST)
         mediaId == ALBUMS_ID ->
             browsable(ALBUMS_ID, "Albums", mediaType = MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS)
         mediaId == ARTISTS_ID ->
@@ -36,7 +44,14 @@ class AutoMediaLibrary(private val app: SpindleApp) {
     }
 
     fun children(parentId: String): List<MediaItem> = when {
+        // The auto-curated lists come first, because they are the reason this
+        // app exists and the car is where reaching for a specific album is
+        // exactly what you should not be doing.
         parentId == ROOT_ID -> listOf(
+            browsable(MOST_PLAYED_ID, "Most Played", mediaType = MediaMetadata.MEDIA_TYPE_PLAYLIST),
+            browsable(FAVORITES_ID, "Favorites", mediaType = MediaMetadata.MEDIA_TYPE_PLAYLIST),
+            browsable(RECENT_ID, "Recently Played", mediaType = MediaMetadata.MEDIA_TYPE_PLAYLIST),
+            browsable(ADDED_ID, "Recently Added", mediaType = MediaMetadata.MEDIA_TYPE_PLAYLIST),
             browsable(SONGS_ID, "Songs", mediaType = MediaMetadata.MEDIA_TYPE_FOLDER_MIXED),
             browsable(ALBUMS_ID, "Albums", mediaType = MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS),
             browsable(ARTISTS_ID, "Artists", mediaType = MediaMetadata.MEDIA_TYPE_FOLDER_ARTISTS),
@@ -45,6 +60,42 @@ class AutoMediaLibrary(private val app: SpindleApp) {
 
         parentId == SONGS_ID -> app.library.tracks.value
             .sortedBy { it.title.lowercase() }
+            .map { it.toMediaItem() }
+
+        // Built from what is already resident rather than from the smart
+        // playlist queries, which are flows and would have to be awaited on a
+        // thread Auto expects to answer immediately.
+        parentId == MOST_PLAYED_ID -> {
+            val stats = app.playStats.value
+            app.library.tracks.value
+                .filter { (stats[it.mediaId]?.playCount ?: 0) > 0 }
+                .sortedWith(
+                    compareByDescending<Track> { stats[it.mediaId]?.playCount ?: 0 }
+                        .thenByDescending { stats[it.mediaId]?.lastPlayedAt ?: 0L }
+                )
+                .take(CURATED_LIMIT)
+                .map { it.toMediaItem() }
+        }
+
+        parentId == FAVORITES_ID -> {
+            val favorites = app.favoriteIds.value
+            app.library.tracks.value
+                .filter { it.mediaId in favorites }
+                .map { it.toMediaItem() }
+        }
+
+        parentId == RECENT_ID -> {
+            val stats = app.playStats.value
+            app.library.tracks.value
+                .filter { (stats[it.mediaId]?.lastPlayedAt ?: 0L) > 0 }
+                .sortedByDescending { stats[it.mediaId]?.lastPlayedAt ?: 0L }
+                .take(CURATED_LIMIT)
+                .map { it.toMediaItem() }
+        }
+
+        parentId == ADDED_ID -> app.library.tracks.value
+            .sortedByDescending { it.dateAddedSec }
+            .take(CURATED_LIMIT)
             .map { it.toMediaItem() }
 
         parentId == ALBUMS_ID -> app.library.tracks.value
@@ -205,6 +256,13 @@ class AutoMediaLibrary(private val app: SpindleApp) {
     companion object {
         const val ROOT_ID = "spindle:auto:root"
         const val SONGS_ID = "spindle:auto:songs"
+        const val MOST_PLAYED_ID = "spindle:auto:most-played"
+        const val FAVORITES_ID = "spindle:auto:favorites"
+        const val RECENT_ID = "spindle:auto:recent"
+        const val ADDED_ID = "spindle:auto:added"
+
+        /** Long enough to last a drive, short enough to scroll on a car screen. */
+        private const val CURATED_LIMIT = 100
         const val ALBUMS_ID = "spindle:auto:albums"
         const val ARTISTS_ID = "spindle:auto:artists"
         const val FOLDERS_ID = "spindle:auto:folders"

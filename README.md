@@ -59,6 +59,23 @@ starts from there.
   a file you cannot replace. An override is undoable, needs no permission and
   survives a rescan. Only the fields you actually change are stored, so fixing
   the artist does not freeze the title against a future retag.
+- **Share a track** — the long-press menu, the player, and a multi-select
+  selection all hand the audio file itself to the Android share sheet, so it
+  goes to messages or anywhere else exactly as it would from Samsung's player.
+  Nothing is copied: the share passes MediaStore's own URI with a read grant,
+  and the receiving app reads the original file.
+- **Select several** — from a long press, pick a run of tracks and queue, share
+  or add the lot to a playlist in one go.
+- **Album artist** — read from the file where it exists, so a compilation is one
+  entry in Artists rather than forty, and an album with a guest feature on two
+  tracks stays one album.
+- **Embedded cover art** — MediaStore only hands out art it decided to extract,
+  and for files that arrived as downloads it very often did not. Spindle reads
+  the art out of the file itself (ID3 `APIC`, FLAC picture blocks, MP4 `covr`)
+  and serves it through a small content provider, which is what lets the lists,
+  the player, the widget, the notification and Android Auto all show it without
+  any of them knowing where it came from. Extraction is lazy and cached, and a
+  file with no art is remembered as such so it is only opened once.
 - **Fast-scroll rail** down the right edge of Songs, Artists and Folders. It is
   keyed off whichever field the list is sorted by, so it shows A–Z for the
   alphabetical sorts and the scale that sort actually runs on otherwise: years
@@ -201,8 +218,10 @@ afterwards says exactly what matched and what did not.
 
 **Android Auto**
 
-Browse Songs, Albums, Artists and Folders from the car screen, with voice
-search. The same session drives it as everything else, so the queue you left on
+Browse Most Played, Favorites, Recently Played and Recently Added — the
+auto-curated lists first, because a car is exactly where you should not be
+hunting for a specific album — then Songs, Albums, Artists and Folders, with
+voice search. The same session drives it as everything else, so the queue you left on
 the phone is the queue in the car.
 
 **Sideloaded apps do not appear in Android Auto until you allow them**, and this
@@ -331,8 +350,10 @@ measured one.
   per second for a bar most people do not watch.
 - Queue reordering uses explicit up/down buttons rather than drag-and-drop.
   Buttons work with a screen reader and with one thumb; drag does not.
-- No embedded-artwork extraction for files whose album art is not in
-  MediaStore's album-art provider.
+- The big bleeding header on an album or playlist screen appears only when
+  MediaStore has the art. Whether to draw it is a layout decision that has to be
+  made before any image is read, and embedded art cannot be found without
+  opening the file. Rows, the player, the widget and the car all show it.
 - ReplayGain is read from tags, not measured. A library that has never been
   scanned by a tagger gets no normalization.
 - No MP4/M4A ReplayGain yet (see above).

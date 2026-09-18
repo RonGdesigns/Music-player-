@@ -85,7 +85,7 @@ fun MiniPlayerBar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Artwork(
-                    uri = track?.albumArtUri?.toString(),
+                    uri = track?.artUri?.toString(),
                     size = 44,
                     contentDescription = null,
                 )

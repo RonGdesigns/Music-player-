@@ -17,7 +17,11 @@ import com.irondigital.spindle.data.settings.SettingsStore
 import com.irondigital.spindle.playback.EqualizerCapabilities
 import com.irondigital.spindle.playback.PlaybackSnapshotStore
 import kotlinx.coroutines.CoroutineScope
+import com.irondigital.spindle.data.db.PlayStat
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 
@@ -75,6 +79,22 @@ class SpindleApp : Application() {
     val gains: GainRepository by lazy { GainRepository(this, database.gainDao()) }
     val importer: AudioImporter by lazy { AudioImporter(this) }
     val youtubeDownloader: YoutubeAudioDownloader by lazy { YoutubeAudioDownloader(this) }
+    /**
+     * Favorites, kept resident.
+     *
+     * Android Auto builds its browse tree on the media service thread and
+     * expects a prompt answer, so the one thing that tree needs which is not
+     * already in memory is held here rather than read from the database at
+     * browse time.
+     */
+    val favoriteIds: StateFlow<Set<String>> by lazy {
+        collections.favoriteIdSet.stateIn(applicationScope, SharingStarted.Eagerly, emptySet())
+    }
+
+    val playStats: StateFlow<Map<String, PlayStat>> by lazy {
+        stats.statsByMediaId.stateIn(applicationScope, SharingStarted.Eagerly, emptyMap())
+    }
+
     val smartPlaylists: SmartPlaylistProvider by lazy {
         SmartPlaylistProvider(library, stats, collections)
     }

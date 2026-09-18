@@ -128,7 +128,12 @@ class LibraryRepository(
         .sortedWith(compareBy({ it.discNumber }, { it.trackNumber }, { it.title }))
 
     fun tracksByArtist(artist: String): List<Track> = _tracks.value
-        .filter { it.artist.equals(artist, ignoreCase = true) }
+        // Matches either credit, so opening an artist from an album still finds
+        // the tracks where they are only the track artist, and the other way round.
+        .filter {
+            it.effectiveAlbumArtist.equals(artist, ignoreCase = true) ||
+                it.artist.equals(artist, ignoreCase = true)
+        }
         .sortedWith(compareBy({ it.album }, { it.discNumber }, { it.trackNumber }))
 
     fun tracksInFolder(path: String): List<Track> = _tracks.value
@@ -156,8 +161,14 @@ class LibraryRepository(
                 AlbumGroup(
                     albumId = albumId,
                     name = first.album,
-                    // An album whose tracks disagree on artist is a compilation.
-                    artist = group.map { it.artist }.distinct().singleOrNull() ?: "Various artists",
+                    // The album artist settles this when the file carries one,
+                    // which is the whole reason it exists: an album with a guest
+                    // feature on two tracks is not a compilation. Only when
+                    // nothing agrees does it fall back to Various artists.
+                    artist = group.mapNotNull { it.albumArtist.takeIf { name -> name.isNotBlank() } }
+                        .distinct().singleOrNull()
+                        ?: group.map { it.artist }.distinct().singleOrNull()
+                        ?: "Various artists",
                     artUri = first.albumArtUri,
                     trackCount = group.size,
                     totalDurationMs = group.sumOf { it.durationMs },
@@ -166,8 +177,15 @@ class LibraryRepository(
             }
             .sortedBy { it.name.lowercase() }
 
+    /**
+     * Grouped by album artist, falling back to the track artist.
+     *
+     * Grouping on the track artist alone turns one compilation into forty
+     * entries in the Artists list, which is how a library assembled from
+     * downloads becomes unbrowsable.
+     */
     private fun groupArtists(tracks: List<Track>): List<ArtistGroup> =
-        tracks.groupBy { it.artist }
+        tracks.groupBy { it.effectiveAlbumArtist }
             .map { (artist, group) ->
                 ArtistGroup(
                     name = artist,

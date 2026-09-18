@@ -1,6 +1,7 @@
 package com.irondigital.spindle.data.model
 
 import android.net.Uri
+import com.irondigital.spindle.data.media.ArtworkProvider
 
 /**
  * One audio file as the library sees it.
@@ -16,6 +17,12 @@ data class Track(
     val title: String,
     val artist: String,
     val album: String,
+    /**
+     * Who the *album* is credited to, which is not always who the track is.
+     * A compilation, or any album with a guest feature, otherwise shatters into
+     * one artist per track.
+     */
+    val albumArtist: String,
     val albumId: Long,
     val albumArtUri: Uri?,
     val durationMs: Long,
@@ -32,6 +39,20 @@ data class Track(
 ) {
     /** Stable key used by the session, the database and the widget alike. */
     val mediaId: String get() = id.toString()
+
+    /**
+     * The cover to draw. MediaStore's own art when it has some, and otherwise
+     * the art inside the file, served by [ArtworkProvider].
+     *
+     * Never null, which means a track with no art anywhere resolves to a URI
+     * that fails to open. That is deliberate: deciding here would mean opening
+     * every file during the scan, and the failure is already handled — the
+     * artwork component keeps its placeholder behind the image.
+     */
+    val artUri: Uri get() = albumArtUri ?: ArtworkProvider.uriFor(mediaId)
+
+    /** What to group this under in the Artists list. */
+    val effectiveAlbumArtist: String get() = albumArtist.ifBlank { artist }
 
     /** Parent directory, used for the Folders tab and for finding sidecar .lrc files. */
     val folderPath: String? get() = filePath?.substringBeforeLast('/', "")?.takeIf { it.isNotEmpty() }

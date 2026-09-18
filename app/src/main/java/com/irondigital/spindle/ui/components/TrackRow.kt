@@ -121,7 +121,7 @@ fun TrackRow(
 
             showArtwork -> {
                 Artwork(
-                    uri = track.albumArtUri?.toString(),
+                    uri = track.artUri.toString(),
                     size = 48,
                     contentDescription = null,
                 )
@@ -201,19 +201,21 @@ fun Artwork(
             .background(Ground.Raised),
         contentAlignment = Alignment.Center,
     ) {
+        // Drawn first and always, so it is what remains when there is no art
+        // to load or when the art inside the file turns out not to exist. An
+        // image that fails silently over an empty plate reads as a broken app.
+        Icon(
+            imageVector = Icons.Filled.MusicNote,
+            contentDescription = contentDescription,
+            tint = Steel.Engrave,
+            modifier = Modifier.size((size * 0.36f).dp),
+        )
         if (uri != null) {
             AsyncImage(
                 model = uri,
                 contentDescription = contentDescription,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(size.dp),
-            )
-        } else {
-            Icon(
-                imageVector = Icons.Filled.MusicNote,
-                contentDescription = contentDescription,
-                tint = Steel.Engrave,
-                modifier = Modifier.size((size * 0.36f).dp),
             )
         }
     }

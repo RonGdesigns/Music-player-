@@ -72,7 +72,7 @@ fun SpindleRoot() {
     val libraryViewModel: LibraryViewModel = viewModel()
 
     val currentTrack by playerViewModel.currentTrack.collectAsStateWithLifecycle()
-    val artworkColors by rememberArtworkColors(currentTrack?.albumArtUri?.toString())
+    val artworkColors by rememberArtworkColors(currentTrack?.artUri?.toString())
 
     SpindleTheme(artworkColors = artworkColors) {
         Box(

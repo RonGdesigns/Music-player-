@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Info
@@ -48,6 +49,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,6 +64,7 @@ import com.irondigital.spindle.ui.components.TickScale
 import com.irondigital.spindle.ui.components.formatDuration
 import com.irondigital.spindle.ui.library.EditTrackHost
 import com.irondigital.spindle.ui.library.LibraryViewModel
+import com.irondigital.spindle.ui.components.ShareTracks
 import com.irondigital.spindle.ui.components.consumeTouches
 import com.irondigital.spindle.ui.theme.Corner
 import com.irondigital.spindle.ui.theme.Ground
@@ -97,6 +100,7 @@ fun NowPlayingScreen(
     val track by playerViewModel.currentTrack.collectAsStateWithLifecycle()
     val settings by playerViewModel.settings.collectAsStateWithLifecycle()
     val colors = LocalArtworkColors.current
+    val context = LocalContext.current
 
     var pane by remember { mutableStateOf(PlayerPane.PLAYING) }
     var showInfo by remember { mutableStateOf(false) }
@@ -153,6 +157,13 @@ fun NowPlayingScreen(
                     onClick = onCollapse,
                 )
                 Spacer(Modifier.weight(1f))
+                track?.let { current ->
+                    LampIconButton(
+                        icon = Icons.Filled.Share,
+                        contentDescription = "Share this track",
+                        onClick = { ShareTracks.share(context, current) },
+                    )
+                }
                 LampIconButton(
                     icon = Icons.Filled.Bedtime,
                     contentDescription = "Sleep timer",
@@ -171,7 +182,7 @@ fun NowPlayingScreen(
 
             Box(modifier = Modifier.weight(1f).clipToBounds()) {
                 when (pane) {
-                    PlayerPane.PLAYING -> PlayingPane(track?.albumArtUri?.toString())
+                    PlayerPane.PLAYING -> PlayingPane(track?.artUri?.toString())
                     PlayerPane.LYRICS -> LyricsPane(
                         playerViewModel = playerViewModel,
                         onSeek = playerViewModel::seekTo,
@@ -270,6 +281,7 @@ private fun PaneStrip(selected: PlayerPane, onSelect: (PlayerPane) -> Unit) {
 @Composable
 private fun PlayingPane(artUri: String?) {
     val colors = LocalArtworkColors.current
+    val context = LocalContext.current
 
     BoxWithConstraints(
         modifier = Modifier

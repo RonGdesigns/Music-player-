@@ -1,5 +1,8 @@
 package com.irondigital.spindle.ui.library
 
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,7 +21,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Deselect
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Shuffle
@@ -38,7 +47,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.irondigital.spindle.data.model.Track
 import com.irondigital.spindle.ui.PlayerViewModel
+import com.irondigital.spindle.ui.components.Groove
 import com.irondigital.spindle.ui.components.LampIconButton
+import com.irondigital.spindle.ui.components.SelectionLamp
+import com.irondigital.spindle.ui.components.ShareTracks
 import com.irondigital.spindle.ui.components.TickScale
 import com.irondigital.spindle.ui.components.TrackActionSheet
 import com.irondigital.spindle.ui.components.TrackRow
@@ -77,6 +89,11 @@ fun TrackListScreen(
     val counts by playerViewModel.playCounts.collectAsStateWithLifecycle()
 
     var addingToPlaylist by remember { mutableStateOf(false) }
+    // Null means the list is in its ordinary state. A set — even an empty one —
+    // means selection mode, where a tap chooses rather than plays.
+    var selection by remember { mutableStateOf<Set<String>?>(null) }
+    var addingSelectionToPlaylist by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     var actionsFor by remember { mutableStateOf<Track?>(null) }
     var editingTrack by remember { mutableStateOf<Track?>(null) }
     val playlists by libraryViewModel.playlists.collectAsStateWithLifecycle()
@@ -105,7 +122,19 @@ fun TrackListScreen(
             }
 
             itemsIndexed(tracks, key = { _, track -> track.mediaId }) { index, track ->
+                val chosen = selection?.contains(track.mediaId)
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (chosen != null) {
+                        Box(
+                            modifier = Modifier
+                                .clickable { selection = selection?.toggle(track.mediaId) }
+                                .padding(start = Space.gutter, end = Space.s)
+                                .height(Space.tap)
+                                .wrapContentHeight(),
+                        ) {
+                            SelectionLamp(chosen)
+                        }
+                    }
                     TrackRow(
                         track = track,
                         modifier = Modifier.weight(1f),
@@ -121,10 +150,19 @@ fun TrackListScreen(
                             numbered -> track.trackNumber.takeIf { it > 0 } ?: (index + 1)
                             else -> null
                         },
-                        onClick = { playerViewModel.play(tracks, index) },
-                        onLongClick = { actionsFor = track },
+                        onClick = {
+                            if (selection == null) playerViewModel.play(tracks, index)
+                            else selection = selection?.toggle(track.mediaId)
+                        },
+                        onLongClick = {
+                            // Long press keeps opening the sheet, which is where
+                            // everything else lives; in selection mode it is the
+                            // quickest way to extend the run being chosen.
+                            if (selection == null) actionsFor = track
+                            else selection = selection?.toggle(track.mediaId)
+                        },
                     )
-                    if (onRemoveTrack != null) {
+                    if (onRemoveTrack != null && selection == null) {
                         LampIconButton(
                             icon = Icons.Filled.Delete,
                             contentDescription = "Remove ${track.title} from this playlist",
@@ -148,6 +186,26 @@ fun TrackListScreen(
                 }
             }
         }
+
+        selection?.let { chosen ->
+            SelectionBar(
+                count = chosen.size,
+                allSelected = chosen.size == tracks.size && tracks.isNotEmpty(),
+                onSelectAll = {
+                    selection = if (chosen.size == tracks.size) emptySet()
+                    else tracks.map { it.mediaId }.toSet()
+                },
+                onAddToPlaylist = { addingSelectionToPlaylist = true },
+                onAddToQueue = {
+                    playerViewModel.addToQueue(tracks.filter { it.mediaId in chosen })
+                    selection = null
+                },
+                onShare = {
+                    ShareTracks.share(context, tracks.filter { it.mediaId in chosen })
+                },
+                onDone = { selection = null },
+            )
+        }
     }
 
     actionsFor?.let { track ->
@@ -162,6 +220,7 @@ fun TrackListScreen(
             },
             onAddToPlaylist = { libraryViewModel.addToPlaylist(it, listOf(track.mediaId)) },
             onEditDetails = { editingTrack = track },
+            onStartSelection = { selection = setOf(track.mediaId) },
             onDismiss = { actionsFor = null },
         )
     }
@@ -180,6 +239,99 @@ fun TrackListScreen(
             mediaIds = tracks.map { it.mediaId },
             onDismiss = { addingToPlaylist = false },
         )
+    }
+
+    if (addingSelectionToPlaylist) {
+        val chosen = selection.orEmpty()
+        AddToPlaylistSheet(
+            libraryViewModel = libraryViewModel,
+            // Kept in the list's own order rather than the order they were
+            // tapped, which is what anyone building a playlist expects.
+            mediaIds = tracks.map { it.mediaId }.filter { it in chosen },
+            onDismiss = {
+                addingSelectionToPlaylist = false
+                selection = null
+            },
+        )
+    }
+}
+
+/** Adds or removes one id, which is all selection mode ever does. */
+private fun Set<String>.toggle(mediaId: String): Set<String> =
+    if (mediaId in this) this - mediaId else this + mediaId
+
+/**
+ * What selection mode offers, pinned to the bottom.
+ *
+ * The count sits next to the actions rather than up in a title bar, because
+ * the number of tracks about to be added to a playlist matters most at the
+ * moment of pressing.
+ */
+@Composable
+private fun SelectionBar(
+    count: Int,
+    allSelected: Boolean,
+    onSelectAll: () -> Unit,
+    onAddToPlaylist: () -> Unit,
+    onAddToQueue: () -> Unit,
+    onShare: () -> Unit,
+    onDone: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().background(Ground.Plate)) {
+        Groove(color = Steel.EngraveLight)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = Space.s, vertical = Space.xs),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (count == 1) "1 selected" else "$count selected",
+                style = SpindleType.DataEmphasis,
+                color = if (count > 0) Lamp.Bright else Steel.Dim,
+                modifier = Modifier.padding(horizontal = Space.s),
+            )
+            Spacer(Modifier.weight(1f))
+            LampIconButton(
+                icon = if (allSelected) Icons.Filled.Deselect else Icons.Filled.SelectAll,
+                contentDescription = if (allSelected) "Select none" else "Select all",
+                onClick = onSelectAll,
+                size = 44.dp,
+                iconSize = 20.dp,
+            )
+            LampIconButton(
+                icon = Icons.AutoMirrored.Filled.PlaylistAdd,
+                contentDescription = "Add the selection to a playlist",
+                onClick = onAddToPlaylist,
+                size = 44.dp,
+                iconSize = 20.dp,
+                enabled = count > 0,
+            )
+            LampIconButton(
+                icon = Icons.AutoMirrored.Filled.QueueMusic,
+                contentDescription = "Add the selection to the queue",
+                onClick = onAddToQueue,
+                size = 44.dp,
+                iconSize = 20.dp,
+                enabled = count > 0,
+            )
+            LampIconButton(
+                icon = Icons.Filled.Share,
+                contentDescription = "Share the selection",
+                onClick = onShare,
+                size = 44.dp,
+                iconSize = 20.dp,
+                enabled = count > 0,
+            )
+            LampIconButton(
+                icon = Icons.Filled.Close,
+                contentDescription = "Leave selection mode",
+                onClick = onDone,
+                size = 44.dp,
+                iconSize = 20.dp,
+            )
+        }
     }
 }
 

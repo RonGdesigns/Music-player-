@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.irondigital.spindle.ui.components.Groove
+import com.irondigital.spindle.ui.components.SelectionLamp
 import com.irondigital.spindle.ui.components.LampIconButton
 import com.irondigital.spindle.ui.components.TickScale
 import com.irondigital.spindle.ui.theme.Corner
@@ -100,29 +101,6 @@ fun ToolHeader(
         TickScale(height = 10.dp, spacing = 6.dp, modifier = Modifier.padding(horizontal = Space.gutter))
         Spacer(Modifier.height(Space.s))
     }
-}
-
-/**
- * The indicator lamp used wherever something is selected.
- *
- * A square that lights rather than a check mark, because the whole interface is
- * a faceplate and this is the one gesture repeated across four screens — so it
- * may as well be the faceplate's own.
- */
-@Composable
-fun SelectionLamp(selected: Boolean, modifier: Modifier = Modifier) {
-    val fill by animateColorAsState(
-        targetValue = if (selected) Lamp.Bright else Ground.Deep,
-        animationSpec = if (selected) Motion.lampOn() else Motion.lampOff(),
-        label = "selection-lamp",
-    )
-    Box(
-        modifier = modifier
-            .size(18.dp)
-            .clip(RoundedCornerShape(Corner.edge))
-            .background(fill)
-            .border(1.dp, if (selected) Lamp.Warm else Steel.EngraveLight, RoundedCornerShape(Corner.edge))
-    )
 }
 
 /**

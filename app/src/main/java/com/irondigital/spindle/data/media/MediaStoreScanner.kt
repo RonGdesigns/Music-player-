@@ -36,6 +36,7 @@ class MediaStoreScanner(private val context: Context) {
                 add(MediaStore.Audio.Media.TITLE)
                 add(MediaStore.Audio.Media.ARTIST)
                 add(MediaStore.Audio.Media.ALBUM)
+                add(MediaStore.Audio.Media.ALBUM_ARTIST)
                 add(MediaStore.Audio.Media.ALBUM_ID)
                 add(MediaStore.Audio.Media.DURATION)
                 add(MediaStore.Audio.Media.TRACK)
@@ -86,6 +87,9 @@ class MediaStoreScanner(private val context: Context) {
         val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
         val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
         val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+        // Not every device populates this, so it is looked up leniently and
+        // falls back to the track artist rather than failing the whole scan.
+        val albumArtistCol = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM_ARTIST)
         val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
         val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
         val trackCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
@@ -125,6 +129,9 @@ class MediaStoreScanner(private val context: Context) {
                     ?.takeUnless { it == MediaStore.UNKNOWN_STRING } ?: "Unknown artist",
                 album = cursor.getStringOrNull(albumCol)
                     ?.takeUnless { it == MediaStore.UNKNOWN_STRING } ?: "Unknown album",
+                albumArtist = (
+                    if (albumArtistCol >= 0) cursor.getStringOrNull(albumArtistCol) else null
+                    )?.takeUnless { it == MediaStore.UNKNOWN_STRING }.orEmpty(),
                 albumId = albumId,
                 albumArtUri = albumArtUri(albumId),
                 durationMs = duration,
