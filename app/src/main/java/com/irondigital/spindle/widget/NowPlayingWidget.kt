@@ -492,6 +492,7 @@ class NowPlayingWidget : GlanceAppWidget() {
 
         suspend fun refresh(context: Context) {
             runCatching { NowPlayingWidget().updateAll(context) }
+            LockScreenNowPlayingWidget.refresh(context)
         }
 
         internal fun formatTime(ms: Long): String {
