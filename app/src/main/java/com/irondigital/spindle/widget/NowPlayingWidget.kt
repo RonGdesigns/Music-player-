@@ -93,6 +93,11 @@ class NowPlayingWidget : GlanceAppWidget() {
                     val compact = !showProgress
                     val showExtraControls = size.width >= EXTRA_CONTROLS_MIN_WIDTH
 
+                    if (size.height < TINY_HEIGHT) {
+                        TinyNowPlaying(snapshot)
+                        return@Box
+                    }
+
                     Column(modifier = GlanceModifier.fillMaxSize()) {
                         NowPlayingHead(
                             snapshot = snapshot,
@@ -130,6 +135,54 @@ class NowPlayingWidget : GlanceAppWidget() {
     }
 
     // ------------------------------------------------------------- pieces
+
+    @Composable
+    private fun TinyNowPlaying(snapshot: PlaybackSnapshot) {
+        Row(
+            modifier = GlanceModifier.fillMaxSize(),
+            verticalAlignment = Alignment.Vertical.CenterVertically,
+        ) {
+            Column(
+                modifier = GlanceModifier
+                    .defaultWeight()
+                    .clickable(actionStartActivity<MainActivity>())
+            ) {
+                Text(
+                    text = snapshot.title.ifBlank { "Unknown title" },
+                    maxLines = 1,
+                    style = TextStyle(
+                        color = ColorProvider(Ink.Primary),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                    ),
+                )
+                Text(
+                    text = snapshot.artist.ifBlank { "Unknown artist" },
+                    maxLines = 1,
+                    style = TextStyle(
+                        color = ColorProvider(Steel.Dim),
+                        fontSize = 10.sp,
+                    ),
+                )
+            }
+            Spacer(GlanceModifier.width(2.dp))
+            TransportButton(
+                R.drawable.ic_previous,
+                "Previous",
+                28.dp,
+                Steel.Bright,
+                PreviousAction::class.java,
+            )
+            PlayPauseButton(snapshot.isPlaying, 32.dp)
+            TransportButton(
+                R.drawable.ic_next,
+                "Next",
+                28.dp,
+                Steel.Bright,
+                NextAction::class.java,
+            )
+        }
+    }
 
     @Composable
     private fun EmptyPlate() {
@@ -481,6 +534,7 @@ class NowPlayingWidget : GlanceAppWidget() {
 
         /** Shuffle/repeat only appear when the host gives them real room. */
         private val EXTRA_CONTROLS_MIN_WIDTH = 300.dp
+        private val TINY_HEIGHT = 90.dp
 
         /** How far ahead the widget lists. Beyond this, open the app. */
         private const val QUEUE_WINDOW = 40
