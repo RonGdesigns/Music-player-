@@ -10,6 +10,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -53,7 +54,13 @@ import kotlin.random.Random
 fun ArtworkVisualizer(
     colors: ArtworkColors,
     mode: VisualizerMode,
-    levels: FloatArray,
+    /**
+     * Taken as State, not as the array itself. In the reactive mode these
+     * arrive many times a second, and a caller that unwraps them first
+     * recomposes the whole player screen at that rate — for a value only this
+     * drawing ever looks at.
+     */
+    levels: State<FloatArray>,
     modifier: Modifier = Modifier,
 ) {
     if (mode == VisualizerMode.OFF) {
@@ -73,7 +80,13 @@ fun ArtworkVisualizer(
     }
 
     val transition = rememberInfiniteTransition(label = "visualizer")
-    val drift by transition.animateFloat(
+    // Held as State and read inside the draw block rather than unwrapped here
+    // with `by`. Unwrapping at composition scope makes this composable
+    // invalidate on every frame of the animation — sixty recompositions a
+    // second behind whatever is on top of it, which is what made the lyrics
+    // stutter as they scrolled. Read in the draw phase, only the drawing is
+    // invalidated, which is all that ever needed to change.
+    val drift = transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
@@ -83,17 +96,17 @@ fun ArtworkVisualizer(
         label = "drift",
     )
 
-    // Reduced motion resolves to a composed still, not to an empty screen.
-    val slow = if (animationsDisabled) STILL_PHASE else drift
-
     val grain = rememberGrain(colors.dominant)
 
     Canvas(modifier) {
+        // Reduced motion resolves to a composed still, not to an empty screen.
+        val slow = if (animationsDisabled) STILL_PHASE else drift.value
         val phase = slow * 2f * PI.toFloat()
+        val bands = levels.value
 
         drawBackField(colors)
-        drawMidPlane(colors, phase, levels, mode)
-        drawSpectrumSilhouette(colors, levels, mode)
+        drawMidPlane(colors, phase, bands, mode)
+        drawSpectrumSilhouette(colors, bands, mode)
         // Grain last: it is the plane nearest the eye, and the earliest proof a
         // person made this rather than accepting a flat fill.
         drawRect(brush = grain)

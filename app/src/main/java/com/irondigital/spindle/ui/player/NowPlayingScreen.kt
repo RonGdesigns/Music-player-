@@ -38,6 +38,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -96,7 +97,14 @@ fun NowPlayingScreen(
     libraryViewModel: LibraryViewModel,
     onCollapse: () -> Unit,
 ) {
-    val playback by playerViewModel.playback.collectAsStateWithLifecycle()
+    // The playhead ticks four times a second, and this screen needs none of
+    // it — only two fields that change rarely. Unwrapping the whole state here
+    // invalidated the entire player, the pane inside it and everything they
+    // contain, four times a second while a scroll animation was running.
+    val playbackState = playerViewModel.playback.collectAsStateWithLifecycle()
+    val audioSessionId by remember { derivedStateOf { playbackState.value.audioSessionId } }
+    val sleepTimerMinutes by remember { derivedStateOf { playbackState.value.sleepTimerMinutes } }
+
     val track by playerViewModel.currentTrack.collectAsStateWithLifecycle()
     val settings by playerViewModel.settings.collectAsStateWithLifecycle()
     val colors = LocalArtworkColors.current
@@ -117,9 +125,9 @@ fun NowPlayingScreen(
         onDispose { view.keepScreenOn = false }
     }
 
-    val levels by rememberAudioLevels(
+    val levels = rememberAudioLevels(
         enabled = settings.visualizerMode == VisualizerMode.AUDIO_REACTIVE,
-        audioSessionId = playback.audioSessionId,
+        audioSessionId = audioSessionId,
     )
 
     Box(
@@ -168,7 +176,7 @@ fun NowPlayingScreen(
                     icon = Icons.Filled.Bedtime,
                     contentDescription = "Sleep timer",
                     onClick = { showSleepTimer = true },
-                    lit = playback.sleepTimerMinutes > 0,
+                    lit = sleepTimerMinutes > 0,
                 )
                 LampIconButton(
                     icon = Icons.Filled.Info,
@@ -222,7 +230,7 @@ fun NowPlayingScreen(
 
     if (showSleepTimer) {
         SleepTimerSheet(
-            activeMinutes = playback.sleepTimerMinutes,
+            activeMinutes = sleepTimerMinutes,
             onSet = { minutes, endOfTrack ->
                 playerViewModel.setSleepTimer(minutes, endOfTrack)
                 showSleepTimer = false

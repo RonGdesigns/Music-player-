@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.semantics.contentDescription
@@ -48,6 +50,9 @@ import com.irondigital.spindle.ui.theme.Space
 import com.irondigital.spindle.ui.theme.SpindleType
 import com.irondigital.spindle.ui.theme.Steel
 
+/** How far below the top edge the line being sung sits while it follows. */
+private val FOLLOW_INSET = 96.dp
+
 /**
  * Lyrics, synced where the file provides timings.
  *
@@ -62,7 +67,7 @@ fun LyricsPane(
     onSeek: (Long) -> Unit,
 ) {
     val lyrics by playerViewModel.lyrics.collectAsStateWithLifecycle()
-    val playback by playerViewModel.playback.collectAsStateWithLifecycle()
+    val playbackState = playerViewModel.playback.collectAsStateWithLifecycle()
     val track by playerViewModel.currentTrack.collectAsStateWithLifecycle()
 
     val lookup by playerViewModel.lyricsLookup.collectAsStateWithLifecycle()
@@ -71,18 +76,29 @@ fun LyricsPane(
     var editing by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
-    val activeIndex = remember(lyrics, playback.positionMs) {
-        lyrics.activeIndexAt(playback.positionMs)
+    // Derived rather than computed from an unwrapped position.
+    //
+    // The playhead moves four times a second; which line is lit changes every
+    // few seconds. Reading the position directly rebuilt this whole pane —
+    // every visible line, every colour animation, the list itself — on every
+    // tick, including while it was mid-scroll. Behind a derived state the pane
+    // only recomposes when the answer actually changes, which is the one thing
+    // that should move it.
+    val activeIndex by remember(lyrics) {
+        derivedStateOf { lyrics.activeIndexAt(playbackState.value.positionMs) }
     }
 
-    // Keeps the current line a third of the way down rather than at the very
-    // top, so the next few lines are always visible — which is the whole point
-    // of following along.
+    // Keeps the current line below the top edge rather than at it, so the next
+    // few lines are always visible — which is the whole point of following
+    // along. In dp: this was raw pixels, so how far down the line actually sat
+    // depended on the density of the screen it was running on.
+    val followOffsetPx = with(LocalDensity.current) { -FOLLOW_INSET.roundToPx() }
+
     LaunchedEffect(activeIndex) {
         if (activeIndex >= 0 && lyrics.synced) {
             listState.animateScrollToItem(
                 index = activeIndex.coerceAtLeast(0),
-                scrollOffset = -160,
+                scrollOffset = followOffsetPx,
             )
         }
     }
