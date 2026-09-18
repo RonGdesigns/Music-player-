@@ -151,7 +151,9 @@ class LyricsRepository(
             val file = File(base + extension)
             if (!file.isFile || file.length() > MAX_SIDECAR_BYTES) continue
             val text = runCatching { file.readText() }.getOrNull() ?: continue
-            LrcParser.parse(text)?.let { return it }
+            // Sidecar files come from the same places the tags do, and carry
+            // the same advertising.
+            LrcParser.parse(text)?.let(LyricsSanitizer::clean)?.let { return it }
         }
         return null
     }
@@ -160,7 +162,7 @@ class LyricsRepository(
         context.contentResolver.openInputStream(track.uri)?.use { stream ->
             EmbeddedLyricsReader.read(stream, track.mimeType, track.displayName)
         }
-    }.getOrNull()
+    }.getOrNull()?.let(LyricsSanitizer::clean)
 
     private companion object {
         val SIDECAR_EXTENSIONS = listOf(".lrc", ".LRC", ".txt")

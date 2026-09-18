@@ -113,6 +113,14 @@ Resolved in priority order:
 2. A `.lrc` file sitting beside the audio file (synced, with timestamps)
 3. The file's own tags — ID3v2 `USLT`/`SYLT` for MP3, Vorbis comments for FLAC,
    the iTunes lyrics atom for M4A
+
+   Plenty of downloaded files carry the site they came from in the lyrics
+   field — a URL, a credit line, sometimes nothing else. Those lines are
+   stripped, and a tag holding only advertising is treated as no lyrics at all,
+   so the lookup below actually runs for the tracks that most need it. The bias
+   is toward leaving things alone: a line is only dropped when it carries a web
+   address, or is a short line whose whole job is to say where the file came
+   from.
 4. **An online lookup, off by default.** When switched on, a track with no
    lyrics of its own is looked up in LRCLIB, an open database with no account
    and no key. What leaves the device is that track's title, artist and length —

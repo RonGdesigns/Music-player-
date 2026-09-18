@@ -164,7 +164,20 @@ fun LyricsPane(
 
                 item {
                     Spacer(Modifier.height(Space.l))
-                    LyricsSourceNote(lyrics.source, lyrics.synced, onEdit = { editing = true })
+                    LyricsSourceNote(
+                        source = lyrics.source,
+                        synced = lyrics.synced,
+                        lookup = lookup,
+                        onEdit = { editing = true },
+                        // Offered even when lyrics are already showing: the
+                        // ones in a file are not always the right ones, and
+                        // before this there was no way past them.
+                        onLookUp = if (settings.lyricsLookupEnabled) {
+                            { track?.let(playerViewModel::lookUpLyrics) }
+                        } else {
+                            null
+                        },
+                    )
                 }
             }
 
@@ -373,7 +386,13 @@ private fun NoLyrics(
 }
 
 @Composable
-private fun LyricsSourceNote(source: LyricsSource, synced: Boolean, onEdit: () -> Unit) {
+private fun LyricsSourceNote(
+    source: LyricsSource,
+    synced: Boolean,
+    lookup: LyricsLookupState,
+    onEdit: () -> Unit,
+    onLookUp: (() -> Unit)?,
+) {
     val description = when (source) {
         LyricsSource.USER -> "Added by you"
         LyricsSource.SIDECAR_LRC -> if (synced) "From the .lrc beside this file" else "From a text file beside this track"
@@ -386,12 +405,30 @@ private fun LyricsSourceNote(source: LyricsSource, synced: Boolean, onEdit: () -
         Spacer(Modifier.height(Space.s))
         Text(text = description, style = SpindleType.Data, color = Steel.Dim)
         Spacer(Modifier.height(Space.s))
-        Text(
-            text = "Edit",
-            style = SpindleType.Secondary,
-            color = Lamp.Bright,
-            modifier = Modifier.clickable(onClick = onEdit),
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.l)) {
+            Text(
+                text = "Edit",
+                style = SpindleType.Secondary,
+                color = Lamp.Bright,
+                modifier = Modifier
+                    .clickable(onClick = onEdit)
+                    .padding(vertical = Space.xs),
+            )
+            if (onLookUp != null) {
+                Text(
+                    text = when (lookup) {
+                        LyricsLookupState.Searching -> "Looking…"
+                        LyricsLookupState.NotFound -> "Nothing found online"
+                        else -> "Replace from online"
+                    },
+                    style = SpindleType.Secondary,
+                    color = if (lookup == LyricsLookupState.Idle) Lamp.Bright else Steel.Dim,
+                    modifier = Modifier
+                        .clickable(enabled = lookup != LyricsLookupState.Searching, onClick = onLookUp)
+                        .padding(vertical = Space.xs),
+                )
+            }
+        }
     }
 }
 
