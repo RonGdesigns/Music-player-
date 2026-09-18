@@ -10,6 +10,8 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
 import com.irondigital.spindle.playback.PlaybackService
 import com.irondigital.spindle.playback.await
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +28,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * and manages the foreground transition itself. It also means the widget
  * traverses exactly the same path as every other surface.
  */
+@OptIn(UnstableApi::class)
 private suspend fun <T> withController(context: Context, block: (MediaController) -> T): T? =
     withContext(Dispatchers.Main) {
         val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
@@ -43,6 +46,7 @@ private suspend fun <T> withController(context: Context, block: (MediaController
 
 private const val CONNECT_TIMEOUT_MS = 4_000L
 
+@OptIn(UnstableApi::class)
 class PlayPauseAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         withController(context) { controller ->
@@ -59,6 +63,7 @@ class PlayPauseAction : ActionCallback {
     }
 }
 
+@OptIn(UnstableApi::class)
 class NextAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         withController(context) { it.seekToNextMediaItem() }
@@ -66,6 +71,7 @@ class NextAction : ActionCallback {
     }
 }
 
+@OptIn(UnstableApi::class)
 class PreviousAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         withController(context) { controller ->
@@ -82,6 +88,7 @@ class PreviousAction : ActionCallback {
  * The queue row tap. This is the behaviour Samsung's widget lost: seeing what
  * is coming up and going straight to it without opening anything.
  */
+@OptIn(UnstableApi::class)
 class JumpToIndexAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val index = parameters[INDEX_KEY] ?: return
@@ -100,6 +107,7 @@ class JumpToIndexAction : ActionCallback {
     }
 }
 
+@OptIn(UnstableApi::class)
 class ToggleShuffleAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         withController(context) { it.shuffleModeEnabled = !it.shuffleModeEnabled }
@@ -107,6 +115,7 @@ class ToggleShuffleAction : ActionCallback {
     }
 }
 
+@OptIn(UnstableApi::class)
 class CycleRepeatAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         withController(context) { controller ->
@@ -120,6 +129,7 @@ class CycleRepeatAction : ActionCallback {
     }
 }
 
+@OptIn(UnstableApi::class)
 class ToggleFavoriteAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         withController(context) { controller ->

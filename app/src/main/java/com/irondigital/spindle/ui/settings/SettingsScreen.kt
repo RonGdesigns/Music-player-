@@ -1,0 +1,477 @@
+package com.irondigital.spindle.ui.settings
+
+import android.Manifest
+import android.app.Application
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.irondigital.spindle.data.settings.LibrarySort
+import com.irondigital.spindle.data.settings.Settings
+import com.irondigital.spindle.data.settings.VisualizerMode
+import com.irondigital.spindle.spindle
+import com.irondigital.spindle.ui.components.LampIconButton
+import com.irondigital.spindle.ui.components.TickScale
+import com.irondigital.spindle.ui.theme.Ground
+import com.irondigital.spindle.ui.theme.Ink
+import com.irondigital.spindle.ui.theme.Lamp
+import com.irondigital.spindle.ui.theme.SignalRed
+import com.irondigital.spindle.ui.theme.Space
+import com.irondigital.spindle.ui.theme.SpindleType
+import com.irondigital.spindle.ui.theme.Steel
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+class SettingsViewModel(application: Application) : AndroidViewModel(application) {
+    private val app = application.spindle
+    private val store = app.settingsStore
+
+    val settings: StateFlow<Settings> =
+        store.settings.stateIn(viewModelScope, SharingStarted.Eagerly, Settings())
+
+    fun setVisualizer(mode: VisualizerMode) = edit { store.setVisualizerMode(mode) }
+    fun setCountPlays(enabled: Boolean) = edit { store.setCountPlaysEnabled(enabled) }
+    fun setThreshold(percent: Int) = edit { store.setPlayThresholdPercent(percent) }
+    fun setMinDuration(seconds: Int) = edit { store.setMinTrackDuration(seconds) }
+    fun setMostPlayedSize(size: Int) = edit { store.setMostPlayedSize(size) }
+    fun setSkipSilence(enabled: Boolean) = edit { store.setSkipSilence(enabled) }
+    fun setKeepScreenOn(enabled: Boolean) = edit { store.setKeepScreenOnWithLyrics(enabled) }
+    fun setSort(sort: LibrarySort) = edit { store.setLibrarySort(sort) }
+
+    fun resetStatistics() = edit { app.stats.resetEverything() }
+
+    private fun edit(block: suspend () -> Unit) {
+        viewModelScope.launch { block() }
+    }
+}
+
+@Composable
+fun SettingsScreen(
+    onBack: () -> Unit,
+    onRescan: () -> Unit,
+) {
+    val viewModel: SettingsViewModel = viewModel()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var confirmingReset by remember { mutableStateOf(false) }
+
+    val recordAudioLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        // Only commit to the reactive mode if the permission actually arrived.
+        if (granted) viewModel.setVisualizer(VisualizerMode.AUDIO_REACTIVE)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Ground.Deep)
+            .statusBarsPadding()
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = Space.s, end = Space.gutter),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            LampIconButton(
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Back",
+                onClick = onBack,
+            )
+            Text("Settings", style = SpindleType.ScreenTitle, color = Ink.Primary)
+        }
+
+        LazyColumn(contentPadding = PaddingValues(bottom = Space.xxl)) {
+
+            item {
+                SettingsSection("Visualiser") {
+                    Text(
+                        text = "What moves behind the cover art while a track plays.",
+                        style = SpindleType.Secondary,
+                        color = Steel.Dim,
+                    )
+                    Spacer(Modifier.height(Space.m))
+
+                    ChoiceRow(
+                        title = "Artwork colours",
+                        description = "Colours drawn from the cover, drifting slowly. " +
+                            "No permissions, negligible battery.",
+                        selected = settings.visualizerMode == VisualizerMode.ARTWORK,
+                        onClick = { viewModel.setVisualizer(VisualizerMode.ARTWORK) },
+                    )
+                    ChoiceRow(
+                        title = "Audio reactive",
+                        description = "Moves with the music itself. Android gates the " +
+                            "audio-analysis API behind the microphone permission, so " +
+                            "this mode has to ask for it. Spindle never records " +
+                            "anything — the permission is only what unlocks the API.",
+                        selected = settings.visualizerMode == VisualizerMode.AUDIO_REACTIVE,
+                        onClick = { recordAudioLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+                    )
+                    ChoiceRow(
+                        title = "Off",
+                        description = "A still ground. Lowest power draw.",
+                        selected = settings.visualizerMode == VisualizerMode.OFF,
+                        onClick = { viewModel.setVisualizer(VisualizerMode.OFF) },
+                    )
+                }
+            }
+
+            item {
+                SettingsSection("Play counts") {
+                    SwitchRow(
+                        title = "Count plays",
+                        description = "Off means Most Played and On Repeat stop updating.",
+                        checked = settings.countPlaysEnabled,
+                        onCheckedChange = viewModel::setCountPlays,
+                    )
+
+                    Spacer(Modifier.height(Space.m))
+                    SliderRow(
+                        title = "Counts as a play after",
+                        value = settings.playThresholdPercent.toFloat(),
+                        range = 10f..95f,
+                        steps = 16,
+                        format = { "${it.toInt()}% of the track" },
+                        onChange = { viewModel.setThreshold(it.toInt()) },
+                    )
+                    Text(
+                        text = "Or four minutes, whichever comes first — so a long " +
+                            "track does not need finishing to count.",
+                        style = SpindleType.Data,
+                        color = Steel.Dim,
+                    )
+
+                    Spacer(Modifier.height(Space.m))
+                    SliderRow(
+                        title = "Most Played holds",
+                        value = settings.mostPlayedSize.toFloat(),
+                        range = 10f..500f,
+                        steps = 48,
+                        format = { "${it.toInt()} tracks" },
+                        onChange = { viewModel.setMostPlayedSize(it.toInt()) },
+                    )
+
+                    Spacer(Modifier.height(Space.m))
+                    Text(
+                        text = "Reset all play counts",
+                        style = SpindleType.RowTitle,
+                        color = SignalRed,
+                        modifier = Modifier
+                            .clickable { confirmingReset = true }
+                            .padding(vertical = Space.s),
+                    )
+                }
+            }
+
+            item {
+                SettingsSection("Library") {
+                    SliderRow(
+                        title = "Ignore tracks shorter than",
+                        value = settings.minTrackDurationSec.toFloat(),
+                        range = 0f..120f,
+                        steps = 23,
+                        format = { if (it < 1f) "No minimum" else "${it.toInt()} seconds" },
+                        onChange = { viewModel.setMinDuration(it.toInt()) },
+                    )
+                    Text(
+                        text = "Keeps interludes, voice memos and ringtone fragments " +
+                            "out of the library.",
+                        style = SpindleType.Data,
+                        color = Steel.Dim,
+                    )
+
+                    Spacer(Modifier.height(Space.m))
+                    Text("Sort songs by", style = SpindleType.RowTitle, color = Ink.Primary)
+                    Spacer(Modifier.height(Space.s))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(Space.s),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        LibrarySort.entries.take(3).forEach { sort ->
+                            SortChip(
+                                sort = sort,
+                                selected = settings.librarySort == sort,
+                                onClick = { viewModel.setSort(sort) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(Space.s))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(Space.s),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        LibrarySort.entries.drop(3).forEach { sort ->
+                            SortChip(
+                                sort = sort,
+                                selected = settings.librarySort == sort,
+                                onClick = { viewModel.setSort(sort) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(Space.m))
+                    Text(
+                        text = "Rescan the library now",
+                        style = SpindleType.RowTitle,
+                        color = Lamp.Bright,
+                        modifier = Modifier
+                            .clickable {
+                                scope.launch { onRescan() }
+                            }
+                            .padding(vertical = Space.s),
+                    )
+                }
+            }
+
+            item {
+                SettingsSection("Playback") {
+                    SwitchRow(
+                        title = "Skip silence",
+                        description = "Trims dead air at the start and end of a track. " +
+                            "Useful on ripped vinyl, distracting on a gapless album.",
+                        checked = settings.skipSilence,
+                        onCheckedChange = viewModel::setSkipSilence,
+                    )
+                    SwitchRow(
+                        title = "Keep the screen on for lyrics",
+                        description = "Only while the lyrics pane is open.",
+                        checked = settings.keepScreenOnWithLyrics,
+                        onCheckedChange = viewModel::setKeepScreenOn,
+                    )
+                }
+            }
+
+            item {
+                SettingsSection("About") {
+                    Text(
+                        text = "Spindle plays what is already on your phone. There is " +
+                            "no account, no sync and no network access of any kind: " +
+                            "your library, your play counts and your playlists never " +
+                            "leave the device.",
+                        style = SpindleType.Body,
+                        color = Steel.Bright,
+                    )
+                    Spacer(Modifier.height(Space.m))
+                    Text(
+                        text = "Typefaces: Barlow and IBM Plex Mono, both SIL Open " +
+                            "Font License.",
+                        style = SpindleType.Data,
+                        color = Steel.Dim,
+                    )
+                }
+            }
+        }
+    }
+
+    if (confirmingReset) {
+        AlertDialog(
+            onDismissRequest = { confirmingReset = false },
+            containerColor = Ground.Plate,
+            title = { Text("Reset play counts?", style = SpindleType.Section, color = Ink.Primary) },
+            text = {
+                Text(
+                    text = "Every play count and the whole listening history go. " +
+                        "Most Played, On Repeat and Forgotten Favourites start from " +
+                        "nothing. Your playlists and favourites are untouched. This " +
+                        "cannot be undone.",
+                    style = SpindleType.Body,
+                    color = Steel.Bright,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.resetStatistics()
+                    confirmingReset = false
+                }) {
+                    Text("Reset", color = SignalRed, style = SpindleType.RowTitle)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmingReset = false }) {
+                    Text("Keep them", color = Lamp.Bright, style = SpindleType.RowTitle)
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun SettingsSection(heading: String, content: @Composable () -> Unit) {
+    Column(modifier = Modifier.padding(horizontal = Space.gutter)) {
+        Spacer(Modifier.height(Space.l))
+        TickScale(height = 10.dp, spacing = 6.dp)
+        Spacer(Modifier.height(Space.m))
+        Text(text = heading, style = SpindleType.Section, color = Ink.Primary)
+        Spacer(Modifier.height(Space.s))
+        content()
+        Spacer(Modifier.height(Space.m))
+    }
+}
+
+@Composable
+private fun SwitchRow(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = Space.s),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = SpindleType.RowTitle, color = Ink.Primary)
+            Text(description, style = SpindleType.Secondary, color = Steel.Dim)
+        }
+        Spacer(Modifier.width(Space.m))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Ink.OnLamp,
+                checkedTrackColor = Lamp.Bright,
+                uncheckedThumbColor = Steel.Dim,
+                uncheckedTrackColor = Ground.Raised,
+                uncheckedBorderColor = Steel.Engrave,
+            ),
+        )
+    }
+}
+
+@Composable
+private fun ChoiceRow(
+    title: String,
+    description: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = Space.s),
+    ) {
+        // A lit groove rather than a radio dot: the same selection language as
+        // the queue, the tabs and the lyrics.
+        Box(
+            modifier = Modifier
+                .width(2.dp)
+                .height(if (selected) 40.dp else 18.dp)
+                .background(if (selected) Lamp.Bright else Steel.Engrave)
+        )
+        Spacer(Modifier.width(Space.m))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = SpindleType.RowTitle,
+                color = if (selected) Lamp.Bright else Ink.Primary,
+            )
+            Text(description, style = SpindleType.Secondary, color = Steel.Dim)
+        }
+    }
+}
+
+@Composable
+private fun SliderRow(
+    title: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    format: (Float) -> String,
+    onChange: (Float) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Text(title, style = SpindleType.RowTitle, color = Ink.Primary)
+            Spacer(Modifier.weight(1f))
+            Text(format(value), style = SpindleType.DataEmphasis, color = Lamp.Bright)
+        }
+        Slider(
+            value = value,
+            onValueChange = onChange,
+            valueRange = range,
+            steps = steps,
+            colors = SliderDefaults.colors(
+                thumbColor = Lamp.Bright,
+                activeTrackColor = Lamp.Bright,
+                inactiveTrackColor = Steel.Engrave,
+                activeTickColor = Ground.Deep,
+                inactiveTickColor = Steel.Engrave,
+            ),
+        )
+    }
+}
+
+@Composable
+private fun SortChip(
+    sort: LibrarySort,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .background(if (selected) Lamp.Bright else Ground.Raised)
+            .clickable(onClick = onClick)
+            .padding(vertical = Space.s),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = when (sort) {
+                LibrarySort.TITLE -> "Title"
+                LibrarySort.ARTIST -> "Artist"
+                LibrarySort.ALBUM -> "Album"
+                LibrarySort.DATE_ADDED -> "Added"
+                LibrarySort.PLAY_COUNT -> "Plays"
+                LibrarySort.DURATION -> "Length"
+            },
+            style = SpindleType.Secondary,
+            color = if (selected) Ink.OnLamp else Steel.Bright,
+        )
+    }
+}

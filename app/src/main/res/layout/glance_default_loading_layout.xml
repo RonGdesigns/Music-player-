@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Shown for the instant between the launcher asking for the widget and Glance
+  producing it. Matching the faceplate colour avoids a flash of another colour.
+-->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#141920" />
+    android:background="@color/ground_plate"
+    tools:ignore="Overdraw" />

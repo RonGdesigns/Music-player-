@@ -44,6 +44,12 @@ data class PlaybackSnapshot(
     val shuffleEnabled: Boolean = false,
     val repeatMode: Int = 0,
     val isFavorite: Boolean = false,
+    /**
+     * The player's audio session, needed by the opt-in audio-reactive
+     * visualiser. It lives on the ExoPlayer instance inside the service, so
+     * this snapshot is how the UI process learns about it.
+     */
+    val audioSessionId: Int = 0,
     val updatedAt: Long = 0,
 ) {
     val hasContent: Boolean get() = currentMediaId != null
@@ -70,6 +76,7 @@ data class PlaybackSnapshot(
         put("shuffleEnabled", shuffleEnabled)
         put("repeatMode", repeatMode)
         put("isFavorite", isFavorite)
+        put("audioSessionId", audioSessionId)
         put("updatedAt", updatedAt)
         put(
             "queue",
@@ -119,6 +126,7 @@ data class PlaybackSnapshot(
                     shuffleEnabled = json.optBoolean("shuffleEnabled"),
                     repeatMode = json.optInt("repeatMode"),
                     isFavorite = json.optBoolean("isFavorite"),
+                    audioSessionId = json.optInt("audioSessionId"),
                     updatedAt = json.optLong("updatedAt"),
                 )
             }.getOrDefault(EMPTY)

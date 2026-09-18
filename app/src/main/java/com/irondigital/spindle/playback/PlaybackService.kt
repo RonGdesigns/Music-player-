@@ -10,6 +10,8 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
@@ -45,6 +47,7 @@ import kotlinx.coroutines.launch
  * to the same MediaSession, so there is exactly one player and exactly one
  * queue no matter which surface you touch.
  */
+@OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
 
     private val serviceJob = SupervisorJob()
@@ -292,6 +295,7 @@ class PlaybackService : MediaSessionService() {
             shuffleEnabled = player.shuffleModeEnabled,
             repeatMode = player.repeatMode,
             isFavorite = currentItem?.mediaId in favorites,
+            audioSessionId = player.audioSessionId,
             updatedAt = System.currentTimeMillis(),
         )
 
