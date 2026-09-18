@@ -21,7 +21,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -106,6 +108,18 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     val importState: StateFlow<ImportState> = _importState.asStateFlow()
 
     val importSupported: Boolean get() = app.importer.isSupported
+
+    init {
+        // A share arrives on the activity and is parked on the application, so
+        // it is picked up here as soon as anything is listening.
+        app.pendingImports
+            .onEach { pending ->
+                if (pending.isNotEmpty() && _importState.value !is ImportState.Running) {
+                    importFiles(app.consumePendingImports())
+                }
+            }
+            .launchIn(viewModelScope)
+    }
 
     fun importFiles(sources: List<Uri>) {
         if (sources.isEmpty()) return

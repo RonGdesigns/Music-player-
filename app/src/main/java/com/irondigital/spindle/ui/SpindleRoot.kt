@@ -30,6 +30,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.irondigital.spindle.data.repo.SmartPlaylist
 import com.irondigital.spindle.ui.library.LibraryViewModel
+import com.irondigital.spindle.ui.library.ImportDialogs
 import com.irondigital.spindle.ui.library.LibraryScreen
 import com.irondigital.spindle.ui.library.TrackListScreen
 import com.irondigital.spindle.ui.player.NowPlayingScreen
@@ -229,6 +230,9 @@ private fun MainStack(
             onOpen = { nowPlayingOpen = true },
         )
     }
+
+    // Above every destination: a shared file can arrive whatever screen is open.
+    ImportDialogs(libraryViewModel)
 
     AnimatedVisibility(
         visible = nowPlayingOpen,

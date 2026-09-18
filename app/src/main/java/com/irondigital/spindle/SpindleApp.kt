@@ -2,6 +2,7 @@ package com.irondigital.spindle
 
 import android.app.Application
 import android.content.Context
+import android.net.Uri
 import com.irondigital.spindle.data.db.SpindleDatabase
 import com.irondigital.spindle.data.lyrics.LyricsRepository
 import com.irondigital.spindle.data.media.AudioImporter
@@ -13,6 +14,7 @@ import com.irondigital.spindle.data.repo.StatsRepository
 import com.irondigital.spindle.data.settings.SettingsStore
 import com.irondigital.spindle.playback.PlaybackSnapshotStore
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 
@@ -28,6 +30,22 @@ import kotlinx.coroutines.cancel
 class SpindleApp : Application() {
 
     val applicationScope = CoroutineScope(SupervisorJob())
+
+    /**
+     * Files shared into the app, waiting to be imported.
+     *
+     * Held here rather than passed through the activity because the share can
+     * arrive while the activity is being recreated, and a URI grant from a share
+     * only lasts as long as the receiving activity — so it has to be picked up
+     * and copied promptly rather than parked in a saved-state bundle.
+     */
+    val pendingImports = MutableStateFlow<List<Uri>>(emptyList())
+
+    fun consumePendingImports(): List<Uri> {
+        val pending = pendingImports.value
+        if (pending.isNotEmpty()) pendingImports.value = emptyList()
+        return pending
+    }
 
     val database: SpindleDatabase by lazy { SpindleDatabase.build(this) }
     val settingsStore: SettingsStore by lazy { SettingsStore(this) }

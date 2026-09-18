@@ -19,7 +19,11 @@ import kotlinx.coroutines.withContext
  */
 class MediaStoreScanner(private val context: Context) {
 
-    suspend fun scan(minDurationMs: Long, excludedFolders: Set<String>): List<Track> =
+    suspend fun scan(
+        minDurationMs: Long,
+        excludedFolders: Set<String>,
+        includeNonMusicAudio: Boolean,
+    ): List<Track> =
         withContext(Dispatchers.IO) {
             val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
@@ -47,9 +51,22 @@ class MediaStoreScanner(private val context: Context) {
                 }
             }.toTypedArray()
 
-            // IS_MUSIC filters out ringtones, notifications and alarms, which is
-            // what makes MediaStore usable as a music library at all.
-            val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+            // IS_MUSIC is what makes MediaStore usable as a music library — it
+            // keeps out ringtones, notifications and alarms.
+            //
+            // But it is set by the media scanner's own guess, and audio that
+            // arrives in Download/ rather than Music/ frequently does not get the
+            // flag. To a user who downloads tracks and expects to play them, the
+            // library simply looks empty for no visible reason. So the relaxed
+            // mode drops IS_MUSIC and excludes the system-sound categories
+            // directly, which is the same intent stated the other way round.
+            val selection = if (includeNonMusicAudio) {
+                "${MediaStore.Audio.Media.IS_RINGTONE} = 0" +
+                    " AND ${MediaStore.Audio.Media.IS_ALARM} = 0" +
+                    " AND ${MediaStore.Audio.Media.IS_NOTIFICATION} = 0"
+            } else {
+                "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+            }
             val sortOrder = "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC"
 
             val out = ArrayList<Track>(512)

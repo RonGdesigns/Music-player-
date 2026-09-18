@@ -72,6 +72,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setCountPlays(enabled: Boolean) = edit { store.setCountPlaysEnabled(enabled) }
     fun setThreshold(percent: Int) = edit { store.setPlayThresholdPercent(percent) }
     fun setMinDuration(seconds: Int) = edit { store.setMinTrackDuration(seconds) }
+    fun setIncludeNonMusicAudio(enabled: Boolean) = edit { store.setIncludeNonMusicAudio(enabled) }
     fun setMostPlayedSize(size: Int) = edit { store.setMostPlayedSize(size) }
     fun setSkipSilence(enabled: Boolean) = edit { store.setSkipSilence(enabled) }
     fun setNormalization(mode: NormalizationMode) = edit { store.setNormalizationMode(mode) }
@@ -223,6 +224,21 @@ fun SettingsScreen(
                             "out of the library.",
                         style = SpindleType.Data,
                         color = Steel.Dim,
+                    )
+
+                    Spacer(Modifier.height(Space.m))
+                    SwitchRow(
+                        title = "Include audio outside the Music folder",
+                        description = "Android only marks a file as music when its " +
+                            "scanner decides to, and audio that lands in Download " +
+                            "usually misses out — so it never shows up here. Turn " +
+                            "this on to include anything that is not a ringtone, " +
+                            "alarm or notification. Rescan afterwards.",
+                        checked = settings.includeNonMusicAudio,
+                        onCheckedChange = {
+                            viewModel.setIncludeNonMusicAudio(it)
+                            onRescan()
+                        },
                     )
 
                     Spacer(Modifier.height(Space.m))

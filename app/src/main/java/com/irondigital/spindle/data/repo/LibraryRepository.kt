@@ -89,6 +89,7 @@ class LibraryRepository(
         val scanned = scanner.scan(
             minDurationMs = settings.minTrackDurationSec * 1_000L,
             excludedFolders = settings.excludedFolders,
+            includeNonMusicAudio = settings.includeNonMusicAudio,
         )
         composeMutex.withLock {
             this.scanned = scanned

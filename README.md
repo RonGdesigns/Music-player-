@@ -39,6 +39,13 @@ starts from there.
 - A minimum track length, so interludes and voice memos stay out
 - Long-press any track for play next, add to queue, favorite, add to a
   playlist, and jump to its album or artist
+- **Share to Spindle** — send audio to Spindle from a browser, a file manager,
+  or anything else holding a file, and it imports and offers a playlist. The
+  shortest path from "I have the file" to "it's in my library, named right".
+- **Include audio outside the Music folder** (Settings → Library). Android only
+  marks a file as music when its scanner decides to, and audio that lands in
+  `Download/` usually misses out — meaning it never appears in any music player.
+  This setting includes anything that isn't a ringtone, alarm or notification.
 - **Import audio files** you already have: the picker copies them into
   `Music/Spindle` through MediaStore, so they become real library files —
   indexed, visible to every other player, and still there after a reinstall —
@@ -256,6 +263,10 @@ measured one.
 - Editing song details changes how Spindle shows a track, not the tags inside
   the file. Other apps will still see the original metadata.
 - Importing requires Android 10 or newer (see above).
+- Spindle plays files you already have. It has no downloader and no network
+  permission — bringing audio onto the device is something you do with whatever
+  tool you prefer, and Spindle picks it up from there via share, import, or the
+  library scan.
 
 ## License
 

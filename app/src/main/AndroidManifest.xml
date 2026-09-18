@@ -40,6 +40,22 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!--
+              "Share to Spindle" from a browser, a file manager, or anything else
+              holding an audio file. This is the shortest path from "I have the
+              file" to "it is in my library and in a playlist".
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="audio/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="audio/*" />
+            </intent-filter>
+
             <!-- "Open with Spindle" from a file manager or a download. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

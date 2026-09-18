@@ -779,7 +779,6 @@ private fun FoldersTab(libraryViewModel: LibraryViewModel, onOpen: (Destination)
 private fun ListsTab(libraryViewModel: LibraryViewModel, onOpen: (Destination) -> Unit) {
     val playlists by libraryViewModel.playlists.collectAsStateWithLifecycle()
     val counts by libraryViewModel.playlistCounts.collectAsStateWithLifecycle()
-    val importState by libraryViewModel.importState.collectAsStateWithLifecycle()
     var creating by remember { mutableStateOf(false) }
 
     val importLauncher = rememberLauncherForActivityResult(
@@ -825,20 +824,6 @@ private fun ListsTab(libraryViewModel: LibraryViewModel, onOpen: (Destination) -
                 )
             }
         }
-    }
-
-    when (val state = importState) {
-        is ImportState.Running -> ImportProgressDialog(state.fileCount)
-        is ImportState.Done -> ImportResultDialog(
-            state = state,
-            playlists = playlists,
-            onAddToPlaylist = { playlistId ->
-                libraryViewModel.addToPlaylist(playlistId, state.added.map { it.mediaId })
-                libraryViewModel.dismissImport()
-            },
-            onDismiss = libraryViewModel::dismissImport,
-        )
-        ImportState.Idle -> Unit
     }
 
     if (creating) {
@@ -1044,6 +1029,31 @@ private fun ActionRow(
                 Text(subtitle, style = SpindleType.Data, color = Steel.Dim)
             }
         }
+    }
+}
+
+/**
+ * The import dialogs, hoisted out of any one tab. A file shared into Spindle can
+ * land while the user is anywhere in the app, and an import that finished with
+ * no visible result is indistinguishable from one that never ran.
+ */
+@Composable
+fun ImportDialogs(libraryViewModel: LibraryViewModel) {
+    val importState by libraryViewModel.importState.collectAsStateWithLifecycle()
+    val playlists by libraryViewModel.playlists.collectAsStateWithLifecycle()
+
+    when (val state = importState) {
+        is ImportState.Running -> ImportProgressDialog(state.fileCount)
+        is ImportState.Done -> ImportResultDialog(
+            state = state,
+            playlists = playlists,
+            onAddToPlaylist = { playlistId ->
+                libraryViewModel.addToPlaylist(playlistId, state.added.map { it.mediaId })
+                libraryViewModel.dismissImport()
+            },
+            onDismiss = libraryViewModel::dismissImport,
+        )
+        ImportState.Idle -> Unit
     }
 }
 

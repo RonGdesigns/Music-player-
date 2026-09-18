@@ -51,6 +51,11 @@ enum class NormalizationMode {
 data class Settings(
     val minTrackDurationSec: Int = 20,
     val excludedFolders: Set<String> = emptySet(),
+    /**
+     * Include audio the media scanner did not flag as music — which is most of
+     * what lands in Download/.
+     */
+    val includeNonMusicAudio: Boolean = false,
     val visualizerMode: VisualizerMode = VisualizerMode.ARTWORK,
     val countPlaysEnabled: Boolean = true,
     /** Share of a track that must be heard before it counts as a play. */
@@ -73,6 +78,7 @@ class SettingsStore(private val context: Context) {
         Settings(
             minTrackDurationSec = p[Keys.MIN_DURATION] ?: 20,
             excludedFolders = p[Keys.EXCLUDED_FOLDERS] ?: emptySet(),
+            includeNonMusicAudio = p[Keys.INCLUDE_NON_MUSIC] ?: false,
             visualizerMode = p[Keys.VISUALIZER]?.let { runCatching { VisualizerMode.valueOf(it) }.getOrNull() }
                 ?: VisualizerMode.ARTWORK,
             countPlaysEnabled = p[Keys.COUNT_PLAYS] ?: true,
@@ -94,6 +100,7 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setMinTrackDuration(seconds: Int) = put(Keys.MIN_DURATION, seconds)
     suspend fun setExcludedFolders(folders: Set<String>) = put(Keys.EXCLUDED_FOLDERS, folders)
+    suspend fun setIncludeNonMusicAudio(enabled: Boolean) = put(Keys.INCLUDE_NON_MUSIC, enabled)
     suspend fun setVisualizerMode(mode: VisualizerMode) = put(Keys.VISUALIZER, mode.name)
     suspend fun setCountPlaysEnabled(enabled: Boolean) = put(Keys.COUNT_PLAYS, enabled)
     suspend fun setPlayThresholdPercent(percent: Int) = put(Keys.PLAY_THRESHOLD, percent.coerceIn(10, 95))
@@ -114,6 +121,7 @@ class SettingsStore(private val context: Context) {
     private object Keys {
         val MIN_DURATION = intPreferencesKey("min_track_duration_sec")
         val EXCLUDED_FOLDERS = stringSetPreferencesKey("excluded_folders")
+        val INCLUDE_NON_MUSIC = booleanPreferencesKey("include_non_music_audio")
         val VISUALIZER = stringPreferencesKey("visualizer_mode")
         val COUNT_PLAYS = booleanPreferencesKey("count_plays")
         val PLAY_THRESHOLD = intPreferencesKey("play_threshold_percent")
