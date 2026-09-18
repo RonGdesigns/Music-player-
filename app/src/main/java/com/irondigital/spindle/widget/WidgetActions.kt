@@ -3,6 +3,7 @@ package com.irondigital.spindle.widget
 import android.content.ComponentName
 import android.content.Context
 import android.os.Bundle
+import android.util.Log
 import androidx.glance.GlanceId
 import androidx.glance.action.ActionParameters
 import androidx.glance.appwidget.action.ActionCallback
@@ -15,10 +16,13 @@ import androidx.annotation.OptIn
 import com.irondigital.spindle.playback.PlaybackService
 import com.irondigital.spindle.playback.await
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
+
+private const val TAG = "SpindleWidget"
 
 /**
  * Widget buttons act on the session through a short-lived MediaController.
@@ -30,29 +34,60 @@ import kotlin.coroutines.resume
  * and manages the foreground transition itself. It also means the widget
  * traverses exactly the same path as every other surface.
  *
- * The subtlety that makes this work at all: **a controller command is dispatched
- * asynchronously, so releasing the controller straight afterwards can unbind the
- * service before it has processed the command.** When the service was only bound
- * and never started — which is the normal state after the process has been away
- * for a while — that unbind destroys it, and the button silently does nothing.
- * So every action here waits for the player to actually reflect the command
- * before letting go. Waiting until playback has begun also gives Media3 time to
- * post its notification, at which point the service is a started foreground
- * service and survives the unbind on its own.
+ * Three things have to be right, and each of them fails silently if it is not.
+ *
+ * **The context must be the application context.** A Glance action callback runs
+ * inside a manifest-declared BroadcastReceiver, and the platform hands those a
+ * ReceiverRestrictedContext, which refuses `bindService` outright — it throws
+ * `ReceiverCallNotAllowedException`. Building a MediaController binds to the
+ * session service, so a controller built on the receiver's own context can never
+ * connect and every button on the widget does nothing at all. This was that bug.
+ *
+ * **A command is dispatched asynchronously**, so releasing the controller
+ * straight afterwards can unbind the service before it has processed it.
+ *
+ * **An unbind can destroy the service.** While the service is only bound and not
+ * yet a started foreground service — the normal state after the process has been
+ * away — the platform destroys it the moment the last client lets go. Media3
+ * promotes it when it posts its notification, which happens shortly *after*
+ * `isPlaying` turns true, so a release timed on that alone can still kill
+ * playback a fraction of a second after starting it.
+ *
+ * Hence: app context, wait for the player to reflect the command, and give
+ * Media3 a beat to take the service foreground before letting go.
  */
 @OptIn(UnstableApi::class)
 private suspend fun withController(
     context: Context,
     block: suspend (MediaController) -> Unit,
 ) {
+    // Not the receiver's context. See above — this single line is the
+    // difference between every button working and none of them working.
+    val appContext = context.applicationContext
+
     withContext(Dispatchers.Main) {
-        val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
+        val token = SessionToken(appContext, ComponentName(appContext, PlaybackService::class.java))
+
         val controller = withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
-            runCatching { MediaController.Builder(context, token).buildAsync().await() }.getOrNull()
-        } ?: return@withContext
+            try {
+                MediaController.Builder(appContext, token).buildAsync().await()
+            } catch (e: Exception) {
+                // Logged rather than swallowed. A silent catch here is what let
+                // a hard platform refusal look like an unresponsive button.
+                Log.w(TAG, "Could not connect to the playback session", e)
+                null
+            }
+        }
+
+        if (controller == null) {
+            Log.w(TAG, "No controller: the widget press could not reach the player")
+            return@withContext
+        }
 
         try {
             block(controller)
+        } catch (e: Exception) {
+            Log.w(TAG, "Widget action failed", e)
         } finally {
             // Leaking a controller keeps the service bound and alive forever.
             controller.release()
@@ -96,9 +131,35 @@ private suspend fun MediaController.awaitState(
 private suspend fun MediaController.awaitQueue(): Boolean =
     awaitState(QUEUE_TIMEOUT_MS) { it.mediaItemCount > 0 }
 
-private const val CONNECT_TIMEOUT_MS = 5_000L
-private const val COMMAND_TIMEOUT_MS = 2_500L
-private const val QUEUE_TIMEOUT_MS = 2_000L
+/**
+ * Waits for playback to actually be running, then holds on a moment longer so
+ * Media3 can post its notification and take the service foreground. Releasing
+ * inside that window destroys a merely-bound service, which stops the music a
+ * heartbeat after the button appeared to work.
+ */
+@OptIn(UnstableApi::class)
+private suspend fun MediaController.awaitPlaybackStarted() {
+    if (awaitState { it.isPlaying }) delay(FOREGROUND_GRACE_MS)
+}
+
+/**
+ * Every timeout here is spent inside a BroadcastReceiver, which the platform
+ * gives roughly ten seconds before it may kill the process. The worst case has
+ * to stay comfortably under that, so these are deliberately tighter than they
+ * would be anywhere else. In practice each resolves in a few milliseconds.
+ */
+private const val CONNECT_TIMEOUT_MS = 4_000L
+private const val COMMAND_TIMEOUT_MS = 1_500L
+private const val QUEUE_TIMEOUT_MS = 1_500L
+private const val FOREGROUND_GRACE_MS = 500L
+
+/** Long enough for the service's debounced snapshot write to have landed. */
+private const val SNAPSHOT_SETTLE_MS = 200L
+
+private suspend fun refreshWidgets(context: Context) {
+    delay(SNAPSHOT_SETTLE_MS)
+    NowPlayingWidget.refresh(context.applicationContext)
+}
 
 @OptIn(UnstableApi::class)
 class PlayPauseAction : ActionCallback {
@@ -113,10 +174,10 @@ class PlayPauseAction : ActionCallback {
                 // will do anything, which is the state after a process death.
                 if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
                 controller.play()
-                controller.awaitState { it.isPlaying }
+                controller.awaitPlaybackStarted()
             }
         }
-        NowPlayingWidget.refresh(context)
+        refreshWidgets(context)
     }
 }
 
@@ -129,7 +190,7 @@ class NextAction : ActionCallback {
             controller.seekToNextMediaItem()
             controller.awaitState { it.currentMediaItemIndex != startIndex }
         }
-        NowPlayingWidget.refresh(context)
+        refreshWidgets(context)
     }
 }
 
@@ -149,7 +210,7 @@ class PreviousAction : ActionCallback {
                 it.currentMediaItemIndex != startIndex || it.currentPosition < startPosition
             }
         }
-        NowPlayingWidget.refresh(context)
+        refreshWidgets(context)
     }
 }
 
@@ -167,9 +228,9 @@ class JumpToIndexAction : ActionCallback {
             if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
             controller.seekTo(index, 0L)
             controller.play()
-            controller.awaitState { it.isPlaying && it.currentMediaItemIndex == index }
+            controller.awaitPlaybackStarted()
         }
-        NowPlayingWidget.refresh(context)
+        refreshWidgets(context)
     }
 
     companion object {
@@ -185,7 +246,7 @@ class ToggleShuffleAction : ActionCallback {
             controller.shuffleModeEnabled = target
             controller.awaitState { it.shuffleModeEnabled == target }
         }
-        NowPlayingWidget.refresh(context)
+        refreshWidgets(context)
     }
 }
 
@@ -201,7 +262,7 @@ class CycleRepeatAction : ActionCallback {
             controller.repeatMode = target
             controller.awaitState { it.repeatMode == target }
         }
-        NowPlayingWidget.refresh(context)
+        refreshWidgets(context)
     }
 }
 
@@ -211,13 +272,11 @@ class ToggleFavoriteAction : ActionCallback {
         withController(context) { controller ->
             // A custom command returns a future, so unlike the player commands
             // this one can simply be awaited.
-            runCatching {
-                controller.sendCustomCommand(
-                    SessionCommand(PlaybackService.COMMAND_TOGGLE_FAVORITE, Bundle.EMPTY),
-                    Bundle.EMPTY,
-                ).await()
-            }
+            controller.sendCustomCommand(
+                SessionCommand(PlaybackService.COMMAND_TOGGLE_FAVORITE, Bundle.EMPTY),
+                Bundle.EMPTY,
+            ).await()
         }
-        NowPlayingWidget.refresh(context)
+        refreshWidgets(context)
     }
 }

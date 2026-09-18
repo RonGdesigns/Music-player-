@@ -84,6 +84,12 @@
             tools:ignore="ExportedService">
             <intent-filter>
                 <action android:name="androidx.media3.session.MediaLibraryService" />
+                <!--
+                  MediaLibraryService extends MediaSessionService, and a
+                  controller can resolve this component by either action. Both
+                  are declared so nothing has to guess which one we are.
+                -->
+                <action android:name="androidx.media3.session.MediaSessionService" />
                 <action android:name="android.media.browse.MediaBrowserService" />
                 <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
             </intent-filter>
