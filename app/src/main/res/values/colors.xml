@@ -1,0 +1,8 @@
+<resources>
+    <!-- Mirrors ui/theme/Palette.kt. Kept in sync by hand; only used by the window + widget. -->
+    <color name="ground_deep">#0B0E13</color>
+    <color name="ground_plate">#141920</color>
+    <color name="lamp">#FFAE3D</color>
+    <color name="steel">#8FA3B8</color>
+    <color name="engrave">#222A34</color>
+</resources>

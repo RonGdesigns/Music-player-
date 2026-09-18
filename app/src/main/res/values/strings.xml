@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Spindle</string>
+    <string name="widget_label">Spindle — Now Playing</string>
+    <string name="widget_description">Cover art, transport controls and the live queue. Tap any track to jump to it.</string>
+</resources>

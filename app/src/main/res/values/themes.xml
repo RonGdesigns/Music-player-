@@ -1,0 +1,15 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!--
+      A splash-free, edge-to-edge shell. Every visible colour is decided in
+      Compose (ui/theme/Palette.kt); this exists only so the window background
+      matches the app ground instead of flashing the platform default.
+    -->
+    <style name="Theme.Spindle" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/ground_deep</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="p">shortEdges</item>
+    </style>
+</resources>
