@@ -126,6 +126,28 @@ class PlaybackService : MediaLibraryService() {
             // boot, so make sure the browse tree has current MediaStore rows.
             if (app.library.tracks.value.isEmpty()) {
                 runCatching { app.library.refresh() }
+                mediaSession?.let { session ->
+                    session.notifyChildrenChanged(
+                        AutoMediaLibrary.SONGS_ID,
+                        app.library.tracks.value.size,
+                        null,
+                    )
+                    session.notifyChildrenChanged(
+                        AutoMediaLibrary.ALBUMS_ID,
+                        app.library.albums.value.size,
+                        null,
+                    )
+                    session.notifyChildrenChanged(
+                        AutoMediaLibrary.ARTISTS_ID,
+                        app.library.artists.value.size,
+                        null,
+                    )
+                    session.notifyChildrenChanged(
+                        AutoMediaLibrary.FOLDERS_ID,
+                        app.library.folders.value.size,
+                        null,
+                    )
+                }
             }
         }
     }
@@ -166,7 +188,8 @@ class PlaybackService : MediaLibraryService() {
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
         ): MediaSession.ConnectionResult {
-            val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+            val sessionCommands =
+                MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
                 .add(SessionCommand(COMMAND_TOGGLE_FAVORITE, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_SET_SLEEP_TIMER, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_CANCEL_SLEEP_TIMER, Bundle.EMPTY))
