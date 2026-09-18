@@ -1,5 +1,7 @@
 <resources>
     <string name="app_name">Spindle</string>
     <string name="widget_label">Spindle — Now Playing</string>
-    <string name="widget_description">Cover art, transport controls and the live queue. Tap any track to jump to it.</string>
+    <string name="widget_description">Cover art, always-visible transport controls and the live queue. Tap any track to jump to it.</string>
+    <string name="lock_widget_label">Spindle — Lock Screen</string>
+    <string name="lock_widget_description">Compact now-playing controls for Samsung LockStar and small widget spaces.</string>
 </resources>
