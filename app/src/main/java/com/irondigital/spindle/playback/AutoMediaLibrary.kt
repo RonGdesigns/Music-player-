@@ -1,8 +1,10 @@
 package com.irondigital.spindle.playback
 
 import android.net.Uri
+import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.util.UnstableApi
 import com.irondigital.spindle.SpindleApp
 import com.irondigital.spindle.data.model.Track
 
@@ -13,6 +15,7 @@ import com.irondigital.spindle.data.model.Track
  * object synchronous is intentional: legacy Auto clients expect browse
  * callbacks to return promptly on the media service thread.
  */
+@OptIn(UnstableApi::class)
 class AutoMediaLibrary(private val app: SpindleApp) {
 
     fun root(): MediaItem = browsable(ROOT_ID, "Spindle")
