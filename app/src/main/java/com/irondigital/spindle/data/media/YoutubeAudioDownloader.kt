@@ -2,9 +2,10 @@ package com.irondigital.spindle.data.media
 
 import android.content.Context
 import android.net.Uri
-import com.yausername.ffmpeg.FFmpeg
-import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLRequest
+import com.arthenica.ffmpegkit.FFmpegKit
+import com.arthenica.ffmpegkit.ReturnCode
+import dev.ffmpegkit_maintained.ytdlp.YtDlp
+import dev.ffmpegkit_maintained.ytdlp.YtDlpRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -23,23 +24,20 @@ data class DownloadedAudio(
 sealed interface YoutubeDownloadResult {
     data class Success(val download: DownloadedAudio) : YoutubeDownloadResult
     data class Failed(val reason: String) : YoutubeDownloadResult
-    data object Cancelled : YoutubeDownloadResult
 }
 
 /**
  * Local YouTube audio downloader/converter used by the paste-link flow.
  *
- * yt-dlp and FFmpeg run entirely on-device. Downloads land in app-private
- * storage first; AudioImporter then copies the finished MP3s into MediaStore
- * (Music/Spindle), which keeps this compatible with scoped storage.
+ * yt-dlp downloads the best available audio stream into app-private cache.
+ * FFmpegKit then converts each downloaded item to MP3. AudioImporter copies
+ * the finished MP3s into MediaStore (Music/Spindle), keeping the app compatible
+ * with Android scoped storage.
  */
 class YoutubeAudioDownloader(private val context: Context) {
 
     @Volatile
     private var initialized = false
-
-    @Volatile
-    private var currentProcessId: String? = null
 
     suspend fun download(
         rawUrl: String,
@@ -61,36 +59,30 @@ class YoutubeAudioDownloader(private val context: Context) {
         val tempDirectory = File(
             File(context.cacheDir, TEMP_ROOT),
             UUID.randomUUID().toString(),
-        ).apply { mkdirs() }
+        )
+        val sourceDirectory = File(tempDirectory, "source")
+        val convertedDirectory = File(tempDirectory, "mp3")
 
-        if (!tempDirectory.exists()) {
+        if (!sourceDirectory.mkdirs() || !convertedDirectory.mkdirs()) {
+            tempDirectory.deleteRecursively()
             return@withContext YoutubeDownloadResult.Failed(
                 "Could not create temporary download storage."
             )
         }
 
-        val processId = "spindle-youtube-${UUID.randomUUID()}"
-        currentProcessId = processId
-
         try {
-            val request = YoutubeDLRequest(url)
+            val request = YtDlpRequest(url)
+                .setOutputTemplate(
+                    File(sourceDirectory, "%(title).160B [%(id)s].%(ext)s").absolutePath
+                )
                 .addOption("--yes-playlist")
                 .addOption("--ignore-errors")
                 .addOption("--no-mtime")
                 .addOption("--no-overwrites")
-                .addOption("--newline")
-                .addOption("--trim-filenames", 160)
+                .addOption("--trim-filenames", "160")
                 .addOption("--format", "bestaudio/best")
-                .addOption("--extract-audio")
-                .addOption("--audio-format", "mp3")
-                .addOption("--audio-quality", "0")
-                .addOption("--embed-metadata")
-                .addOption(
-                    "--output",
-                    File(tempDirectory, "%(title).160B [%(id)s].%(ext)s").absolutePath,
-                )
 
-            YoutubeDL.execute(request, processId) { progress, eta, _ ->
+            YtDlp.execute(request) { progress, eta, _ ->
                 onProgress(
                     YoutubeDownloadProgress(
                         percent = progress.coerceIn(0f, 100f),
@@ -99,42 +91,63 @@ class YoutubeAudioDownloader(private val context: Context) {
                 )
             }
 
-            val files = tempDirectory
-                .walkTopDown()
+            val sources = sourceDirectory
+                .listFiles()
+                .orEmpty()
                 .filter { file ->
-                    file.isFile && file.extension.equals("mp3", ignoreCase = true)
+                    file.isFile && file.extension.lowercase() in AUDIO_EXTENSIONS
                 }
                 .sortedBy { it.name.lowercase() }
-                .toList()
 
-            if (files.isEmpty()) {
+            if (sources.isEmpty()) {
+                tempDirectory.deleteRecursively()
+                return@withContext YoutubeDownloadResult.Failed(
+                    "No audio was downloaded. The link may be private, unavailable, or unsupported."
+                )
+            }
+
+            val converted = sources.mapNotNull { source ->
+                val target = File(
+                    convertedDirectory,
+                    "${source.nameWithoutExtension}.mp3",
+                )
+
+                val session = FFmpegKit.executeWithArguments(
+                    arrayOf(
+                        "-y",
+                        "-i", source.absolutePath,
+                        "-vn",
+                        "-map_metadata", "0",
+                        "-codec:a", "libmp3lame",
+                        "-q:a", "0",
+                        target.absolutePath,
+                    )
+                )
+
+                target.takeIf {
+                    ReturnCode.isSuccess(session.returnCode) &&
+                        it.isFile &&
+                        it.length() > 0L
+                }
+            }
+
+            if (converted.isEmpty()) {
                 tempDirectory.deleteRecursively()
                 YoutubeDownloadResult.Failed(
-                    "No audio was downloaded. The link may be private, unavailable, or unsupported."
+                    "The audio downloaded, but FFmpeg could not convert it to MP3."
                 )
             } else {
                 YoutubeDownloadResult.Success(
-                    DownloadedAudio(files = files, tempDirectory = tempDirectory)
+                    DownloadedAudio(
+                        files = converted,
+                        tempDirectory = tempDirectory,
+                    )
                 )
             }
-        } catch (_: YoutubeDL.CanceledException) {
-            tempDirectory.deleteRecursively()
-            YoutubeDownloadResult.Cancelled
-        } catch (error: InterruptedException) {
-            Thread.currentThread().interrupt()
-            tempDirectory.deleteRecursively()
-            YoutubeDownloadResult.Cancelled
         } catch (error: Throwable) {
             tempDirectory.deleteRecursively()
             YoutubeDownloadResult.Failed(cleanError(error))
-        } finally {
-            if (currentProcessId == processId) currentProcessId = null
         }
-    }
-
-    fun cancelCurrent(): Boolean {
-        val processId = currentProcessId ?: return false
-        return runCatching { YoutubeDL.destroyProcessById(processId) }.getOrDefault(false)
     }
 
     fun cleanUp(download: DownloadedAudio) {
@@ -144,20 +157,7 @@ class YoutubeAudioDownloader(private val context: Context) {
     @Synchronized
     private fun ensureInitialized() {
         if (initialized) return
-
-        YoutubeDL.init(context.applicationContext)
-        FFmpeg.init(context.applicationContext)
-
-        // The bundled extractor can age quickly as YouTube changes. Try to use
-        // the newest stable yt-dlp, but do not make GitHub availability a hard
-        // requirement: the bundled copy remains the fallback.
-        runCatching {
-            YoutubeDL.updateYoutubeDL(
-                context.applicationContext,
-                YoutubeDL.UpdateChannel.STABLE,
-            )
-        }
-
+        YtDlp.init(context.applicationContext)
         initialized = true
     }
 
@@ -192,5 +192,17 @@ class YoutubeAudioDownloader(private val context: Context) {
 
     private companion object {
         const val TEMP_ROOT = "youtube-imports"
+
+        val AUDIO_EXTENSIONS = setOf(
+            "aac",
+            "flac",
+            "m4a",
+            "mp3",
+            "oga",
+            "ogg",
+            "opus",
+            "wav",
+            "webm",
+        )
     }
 }
