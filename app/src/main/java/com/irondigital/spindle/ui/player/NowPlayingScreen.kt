@@ -8,11 +8,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -44,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalView
@@ -155,7 +157,7 @@ fun NowPlayingScreen(
 
             PaneStrip(selected = pane, onSelect = { pane = it })
 
-            Box(modifier = Modifier.weight(1f)) {
+            Box(modifier = Modifier.weight(1f).clipToBounds()) {
                 when (pane) {
                     PlayerPane.PLAYING -> PlayingPane(track?.albumArtUri?.toString())
                     PlayerPane.LYRICS -> LyricsPane(
@@ -248,16 +250,21 @@ private fun PaneStrip(selected: PlayerPane, onSelect: (PlayerPane) -> Unit) {
 private fun PlayingPane(artUri: String?) {
     val colors = LocalArtworkColors.current
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = Space.xl),
         contentAlignment = Alignment.Center,
     ) {
+        // fillMaxWidth().aspectRatio(1f) makes a square as wide as the screen,
+        // which on a short screen — or once the lyrics and queue tabs push the
+        // transport up — is taller than the space available, and the overflow
+        // lands on top of the controls. Sizing from the smaller dimension keeps
+        // the cover square and inside its pane on every screen shape.
+        val side = minOf(maxWidth, maxHeight)
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
+                .size(side)
                 .shadow(
                     elevation = 36.dp,
                     shape = RoundedCornerShape(Corner.plate),

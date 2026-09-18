@@ -5,6 +5,7 @@ import android.content.Context
 import com.irondigital.spindle.data.db.SpindleDatabase
 import com.irondigital.spindle.data.lyrics.LyricsRepository
 import com.irondigital.spindle.data.repo.CollectionsRepository
+import com.irondigital.spindle.data.repo.GainRepository
 import com.irondigital.spindle.data.repo.LibraryRepository
 import com.irondigital.spindle.data.repo.SmartPlaylistProvider
 import com.irondigital.spindle.data.repo.StatsRepository
@@ -39,6 +40,7 @@ class SpindleApp : Application() {
         CollectionsRepository(database.favoritesDao(), database.playlistDao())
     }
     val lyrics: LyricsRepository by lazy { LyricsRepository(this, database.lyricsDao()) }
+    val gains: GainRepository by lazy { GainRepository(this, database.gainDao()) }
     val smartPlaylists: SmartPlaylistProvider by lazy {
         SmartPlaylistProvider(library, stats, collections)
     }

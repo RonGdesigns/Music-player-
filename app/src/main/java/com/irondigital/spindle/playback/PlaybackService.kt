@@ -56,6 +56,7 @@ class PlaybackService : MediaSessionService() {
     private lateinit var player: ExoPlayer
     private var mediaSession: MediaSession? = null
     private lateinit var tracker: PlayCountTracker
+    private lateinit var loudness: LoudnessController
 
     private var settings: Settings = Settings()
     private var sleepTimerJob: Job? = null
@@ -83,6 +84,10 @@ class PlaybackService : MediaSessionService() {
 
         tracker = PlayCountTracker(serviceScope, app.stats) { settings }
         tracker.attach(player)
+
+        loudness = LoudnessController(serviceScope, player, app.gains) { settings }
+        loudness.attach()
+
         player.addListener(PlayerWatcher())
 
         val sessionActivity = PendingIntent.getActivity(
@@ -99,8 +104,15 @@ class PlaybackService : MediaSessionService() {
 
         app.settingsStore.settings
             .onEach { updated ->
+                val previous = settings
                 settings = updated
                 player.skipSilenceEnabled = updated.skipSilence
+
+                if (previous.normalizationMode != updated.normalizationMode ||
+                    previous.normalizationPreampDb != updated.normalizationPreampDb
+                ) {
+                    loudness.onSettingsChanged()
+                }
             }
             .launchIn(serviceScope)
 
@@ -123,6 +135,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         sleepTimerJob?.cancel()
+        loudness.detach()
         tracker.detach()
         mediaSession?.run {
             release()

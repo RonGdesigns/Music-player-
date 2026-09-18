@@ -39,6 +39,12 @@ starts from there.
 - A minimum track length, so interludes and voice memos stay out
 - Long-press any track for play next, add to queue, favourite, add to a
   playlist, and jump to its album or artist
+- **Fast-scroll rail** down the right edge of Songs, Artists and Folders. It is
+  keyed off whichever field the list is sorted by, so it shows A–Z for the
+  alphabetical sorts and the scale that sort actually runs on otherwise: years
+  for date added, count bands for plays, minute bands for length. Drag it for a
+  haptic tick per stop and a large readout; the list still scrolls normally,
+  because a 14dp rail label can never be the only way to reach a row.
 
 **Play counts and automatic playlists**
 
@@ -90,6 +96,31 @@ Nothing is fetched online, so nothing about what you play is sent anywhere.
 - **Off** — a still ground.
 
 All three respect the system's "remove animations" setting.
+
+**Listening stats**
+
+Built from the same play-event log that makes Most Played work: total hours,
+plays counted, how much of the library you have actually heard, current and
+longest daily streak, plays per day over the last 30 days, plays by hour of the
+day, and your top artists and tracks.
+
+**Volume normalisation (ReplayGain)**
+
+Evens out a quiet album against a loud one using the ReplayGain values already
+in your files — nothing is analysed or re-encoded, and scanning loudness
+ourselves would mean decoding every track end to end.
+
+- **Match tracks** — every track against every other. Best on shuffle.
+- **Match albums** — levels albums against each other but leaves the loud and
+  quiet passages *within* an album alone. Best for anything mastered as one
+  piece.
+- A pre-amp on top, and automatic clipping prevention: a boost is cut back to
+  whatever headroom the file's peak actually leaves.
+
+Reads ID3v2 `TXXX` frames (MP3) and Vorbis comments (FLAC). M4A stores the same
+values in `----` freeform atoms, which is not handled yet — those files play at
+unity gain. Values are cached after the first play; Settings has a re-read
+button for after a retagging session.
 
 **Playback**
 - Media3 / ExoPlayer, gapless, with proper audio focus
@@ -145,9 +176,11 @@ data/
   repo/       Library, statistics, collections, smart playlists
   settings/   DataStore preferences
 playback/
-  PlaybackService   Media3 MediaSessionService — the single owner of playback
-  PlayCountTracker  Decides when a track counts as played
-  PlaybackSnapshot  Disk-backed playback state; the widget's data source
+  PlaybackService     Media3 MediaSessionService — the single owner of playback
+  PlayCountTracker    Decides when a track counts as played
+  PlaybackSnapshot    Disk-backed playback state; the widget's data source
+  Normalization       The ReplayGain arithmetic, kept free of the audio stack
+  LoudnessController  Applies it to the running player
 widget/
   NowPlayingWidget  Glance, four responsive layouts
   WidgetActions     Buttons act via a short-lived MediaController
@@ -155,6 +188,7 @@ ui/
   theme/      Palette, typography, motion, spacing
   library/    Library tabs and track lists
   player/     Now playing, lyrics, queue, song info, visualiser
+  stats/      Listening stats and its charts
   settings/
 ```
 
@@ -200,9 +234,12 @@ measured one.
   Buttons work with a screen reader and with one thumb; drag does not.
 - No embedded-artwork extraction for files whose album art is not in
   MediaStore's album-art provider.
-- Not yet tested on a physical device — it compiles, lints and unit-tests
-  clean, but the playback path, the widget and the visualiser want real
-  hardware.
+- ReplayGain is read from tags, not measured. A library that has never been
+  scanned by a tagger gets no normalisation.
+- No MP4/M4A ReplayGain yet (see above).
+- The fast-scroll rail thins its stops to what fits a phone's height, so on a
+  library spanning many years the date-added rail lands a few rows off rather
+  than exactly.
 
 ## Licence
 

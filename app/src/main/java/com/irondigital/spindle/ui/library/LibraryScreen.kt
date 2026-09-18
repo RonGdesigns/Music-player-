@@ -338,6 +338,14 @@ private fun HomeTab(
             )
         }
 
+        item {
+            ShelfRow(
+                title = "Listening",
+                subtitle = "Your play counts, streaks and hours, drawn out",
+                onClick = { onOpen(Destination.Stats) },
+            )
+        }
+
         if (recentlyAdded.isNotEmpty()) {
             item {
                 Column {
@@ -531,7 +539,11 @@ private fun ShelfPlate(
 }
 
 @Composable
-private fun ShelfRow(playlist: SmartPlaylist, onClick: () -> Unit) {
+private fun ShelfRow(playlist: SmartPlaylist, onClick: () -> Unit) =
+    ShelfRow(playlist.title, playlist.subtitle, onClick)
+
+@Composable
+private fun ShelfRow(title: String, subtitle: String, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -542,8 +554,8 @@ private fun ShelfRow(playlist: SmartPlaylist, onClick: () -> Unit) {
         Box(modifier = Modifier.width(2.dp).height(26.dp).background(Steel.Engrave))
         Spacer(Modifier.width(Space.m))
         Column(modifier = Modifier.weight(1f)) {
-            Text(playlist.title, style = SpindleType.RowTitle, color = Ink.Primary)
-            Text(playlist.subtitle, style = SpindleType.Secondary, color = Steel.Dim, maxLines = 1)
+            Text(title, style = SpindleType.RowTitle, color = Ink.Primary)
+            Text(subtitle, style = SpindleType.Secondary, color = Steel.Dim, maxLines = 1)
         }
     }
 }

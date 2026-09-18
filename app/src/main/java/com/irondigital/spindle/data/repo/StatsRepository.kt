@@ -25,6 +25,12 @@ class StatsRepository(private val statsDao: StatsDao) {
 
     fun playedIds(): Flow<Set<String>> = statsDao.observePlayedIds().map { it.toSet() }
 
+    val totalPlays: Flow<Int> get() = statsDao.observeTotalPlays()
+    val totalListenedMs: Flow<Long> get() = statsDao.observeTotalListenedMs()
+    val distinctPlayedCount: Flow<Int> get() = statsDao.observeDistinctPlayedCount()
+
+    fun eventTimesSince(since: Long): Flow<List<Long>> = statsDao.observeEventTimesSince(since)
+
     /**
      * Counts one play. Called by the tracker once a track has been heard past
      * the threshold — never on start, because starting a track and immediately

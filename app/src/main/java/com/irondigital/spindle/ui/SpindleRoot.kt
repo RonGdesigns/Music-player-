@@ -35,6 +35,7 @@ import com.irondigital.spindle.ui.library.TrackListScreen
 import com.irondigital.spindle.ui.player.NowPlayingScreen
 import com.irondigital.spindle.ui.player.rememberArtworkColors
 import com.irondigital.spindle.ui.settings.SettingsScreen
+import com.irondigital.spindle.ui.stats.StatsScreen
 import com.irondigital.spindle.ui.theme.Ground
 import com.irondigital.spindle.ui.theme.Motion
 import com.irondigital.spindle.ui.theme.SpindleTheme
@@ -47,6 +48,7 @@ import com.irondigital.spindle.ui.theme.SpindleTheme
 sealed interface Destination {
     data object Library : Destination
     data object Settings : Destination
+    data object Stats : Destination
     data class Album(val albumId: Long) : Destination
     data class Artist(val name: String) : Destination
     data class Folder(val path: String) : Destination
@@ -113,7 +115,10 @@ private fun MainStack(
                 Destination.Settings -> SettingsScreen(
                     onBack = ::pop,
                     onRescan = libraryViewModel::refresh,
+                    onOpenStats = { push(Destination.Stats) },
                 )
+
+                Destination.Stats -> StatsScreen(onBack = ::pop)
 
                 is Destination.Album -> {
                     // Filtering the whole library on every recomposition would

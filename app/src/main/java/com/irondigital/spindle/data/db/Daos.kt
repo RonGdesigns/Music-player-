@@ -71,6 +71,26 @@ interface StatsDao {
     @Query("SELECT mediaId FROM play_stats WHERE playCount > 0")
     fun observePlayedIds(): Flow<List<String>>
 
+    /** Total counted plays, all time. */
+    @Query("SELECT COUNT(*) FROM play_events")
+    fun observeTotalPlays(): Flow<Int>
+
+    @Query("SELECT COALESCE(SUM(msListened), 0) FROM play_stats")
+    fun observeTotalListenedMs(): Flow<Long>
+
+    @Query("SELECT COUNT(*) FROM play_stats WHERE playCount > 0")
+    fun observeDistinctPlayedCount(): Flow<Int>
+
+    /**
+     * Raw timestamps rather than SQL date grouping. Bucketing by day or by hour
+     * has to happen in the device's own time zone, including its DST rules, and
+     * SQLite's date functions work in UTC unless coaxed — which is exactly the
+     * kind of coaxing that silently puts every play in the wrong bucket for half
+     * the year.
+     */
+    @Query("SELECT playedAt FROM play_events WHERE playedAt >= :since ORDER BY playedAt ASC")
+    fun observeEventTimesSince(since: Long): Flow<List<Long>>
+
     @Query("DELETE FROM play_events WHERE mediaId = :mediaId")
     suspend fun deleteEventsFor(mediaId: String)
 
@@ -174,4 +194,17 @@ interface LyricsDao {
 
     @Query("DELETE FROM lyrics_overrides WHERE mediaId = :mediaId")
     suspend fun delete(mediaId: String)
+}
+
+@Dao
+interface GainDao {
+
+    @Query("SELECT * FROM track_gain WHERE mediaId = :mediaId")
+    suspend fun get(mediaId: String): TrackGain?
+
+    @Upsert
+    suspend fun upsert(gain: TrackGain)
+
+    @Query("DELETE FROM track_gain")
+    suspend fun clear()
 }

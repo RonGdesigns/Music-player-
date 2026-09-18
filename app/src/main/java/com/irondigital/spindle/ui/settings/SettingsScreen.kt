@@ -43,6 +43,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.irondigital.spindle.data.settings.LibrarySort
+import com.irondigital.spindle.data.settings.NormalizationMode
 import com.irondigital.spindle.data.settings.Settings
 import com.irondigital.spindle.data.settings.VisualizerMode
 import com.irondigital.spindle.spindle
@@ -73,6 +74,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setMinDuration(seconds: Int) = edit { store.setMinTrackDuration(seconds) }
     fun setMostPlayedSize(size: Int) = edit { store.setMostPlayedSize(size) }
     fun setSkipSilence(enabled: Boolean) = edit { store.setSkipSilence(enabled) }
+    fun setNormalization(mode: NormalizationMode) = edit { store.setNormalizationMode(mode) }
+    fun setPreamp(db: Int) = edit { store.setNormalizationPreamp(db) }
+    fun rescanGain() = edit { app.gains.clearCache() }
     fun setKeepScreenOn(enabled: Boolean) = edit { store.setKeepScreenOnWithLyrics(enabled) }
     fun setSort(sort: LibrarySort) = edit { store.setLibrarySort(sort) }
 
@@ -87,6 +91,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 fun SettingsScreen(
     onBack: () -> Unit,
     onRescan: () -> Unit,
+    onOpenStats: () -> Unit,
 ) {
     val viewModel: SettingsViewModel = viewModel()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
@@ -266,6 +271,79 @@ fun SettingsScreen(
             }
 
             item {
+                SettingsSection("Volume") {
+                    Text(
+                        text = "Evens out the difference between a quiet album and a " +
+                            "loud one, using the ReplayGain values already in your " +
+                            "files. Nothing is analysed or re-encoded, and files " +
+                            "without those tags simply play as they are.",
+                        style = SpindleType.Secondary,
+                        color = Steel.Dim,
+                    )
+                    Spacer(Modifier.height(Space.m))
+
+                    ChoiceRow(
+                        title = "Off",
+                        description = "Every file plays at the level it was mastered at.",
+                        selected = settings.normalizationMode == NormalizationMode.OFF,
+                        onClick = { viewModel.setNormalization(NormalizationMode.OFF) },
+                    )
+                    ChoiceRow(
+                        title = "Match tracks",
+                        description = "Every track against every other. Best on shuffle.",
+                        selected = settings.normalizationMode == NormalizationMode.TRACK,
+                        onClick = { viewModel.setNormalization(NormalizationMode.TRACK) },
+                    )
+                    ChoiceRow(
+                        title = "Match albums",
+                        description = "Levels albums against each other but leaves the " +
+                            "loud and quiet passages within an album alone. Best for " +
+                            "anything mastered as one continuous piece.",
+                        selected = settings.normalizationMode == NormalizationMode.ALBUM,
+                        onClick = { viewModel.setNormalization(NormalizationMode.ALBUM) },
+                    )
+
+                    if (settings.normalizationMode != NormalizationMode.OFF) {
+                        Spacer(Modifier.height(Space.m))
+                        SliderRow(
+                            title = "Pre-amp",
+                            value = settings.normalizationPreampDb.toFloat(),
+                            range = -15f..15f,
+                            steps = 29,
+                            format = {
+                                val db = it.toInt()
+                                if (db > 0) "+$db dB" else "$db dB"
+                            },
+                            onChange = { viewModel.setPreamp(it.toInt()) },
+                        )
+                        Text(
+                            text = "Applied on top of each file's own value. A boost is " +
+                                "cut back automatically where the track would otherwise " +
+                                "clip.",
+                            style = SpindleType.Data,
+                            color = Steel.Dim,
+                        )
+
+                        Spacer(Modifier.height(Space.m))
+                        Text(
+                            text = "Re-read gain tags",
+                            style = SpindleType.RowTitle,
+                            color = Lamp.Bright,
+                            modifier = Modifier
+                                .clickable { viewModel.rescanGain() }
+                                .padding(vertical = Space.s),
+                        )
+                        Text(
+                            text = "Values are cached after the first play. Use this if " +
+                                "you have just retagged your library.",
+                            style = SpindleType.Data,
+                            color = Steel.Dim,
+                        )
+                    }
+                }
+            }
+
+            item {
                 SettingsSection("Playback") {
                     SwitchRow(
                         title = "Skip silence",
@@ -279,6 +357,26 @@ fun SettingsScreen(
                         description = "Only while the lyrics pane is open.",
                         checked = settings.keepScreenOnWithLyrics,
                         onCheckedChange = viewModel::setKeepScreenOn,
+                    )
+                }
+            }
+
+            item {
+                SettingsSection("Listening") {
+                    Text(
+                        text = "See your play counts, streaks and listening hours " +
+                            "drawn out.",
+                        style = SpindleType.Secondary,
+                        color = Steel.Dim,
+                    )
+                    Spacer(Modifier.height(Space.s))
+                    Text(
+                        text = "Open listening stats",
+                        style = SpindleType.RowTitle,
+                        color = Lamp.Bright,
+                        modifier = Modifier
+                            .clickable(onClick = onOpenStats)
+                            .padding(vertical = Space.s),
                     )
                 }
             }

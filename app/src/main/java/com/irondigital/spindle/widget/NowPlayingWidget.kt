@@ -97,6 +97,7 @@ class NowPlayingWidget : GlanceAppWidget() {
                             snapshot = snapshot,
                             art = art,
                             compact = !showProgress,
+                            width = size.width,
                         )
 
                         if (showProgress) {
@@ -148,8 +149,23 @@ class NowPlayingWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun NowPlayingHead(snapshot: PlaybackSnapshot, art: Bitmap?, compact: Boolean) {
-        val artSize = if (compact) 48.dp else 60.dp
+    private fun NowPlayingHead(
+        snapshot: PlaybackSnapshot,
+        art: Bitmap?,
+        compact: Boolean,
+        width: androidx.compose.ui.unit.Dp,
+    ) {
+        val artSize = if (compact) COMPACT_ART else 60.dp
+
+        // RemoteViews has no way to say "drop this if it does not fit" — a row
+        // whose fixed children outgrow it just squeezes them into each other,
+        // which is what put the artwork on top of the transport buttons at the
+        // smallest size. So the budget is worked out here instead.
+        //
+        // At the 180dp minimum, 24dp of plate padding leaves 156dp: artwork and
+        // its gutter take 52, the play button 40, and the title needs the rest.
+        // Skip and next only appear once there is genuine room for them.
+        val roomForSkip = width >= COMPACT_SKIP_MIN_WIDTH
         Row(
             modifier = GlanceModifier.fillMaxWidth(),
             verticalAlignment = Alignment.Vertical.CenterVertically,
@@ -203,9 +219,19 @@ class NowPlayingWidget : GlanceAppWidget() {
 
             if (compact) {
                 Spacer(GlanceModifier.width(4.dp))
-                TransportButton(R.drawable.ic_previous, "Previous", 34.dp, Steel.Bright, PreviousAction::class.java)
+                if (roomForSkip) {
+                    TransportButton(
+                        R.drawable.ic_previous, "Previous", 36.dp, Steel.Bright,
+                        PreviousAction::class.java,
+                    )
+                }
                 PlayPauseButton(snapshot.isPlaying, 40.dp)
-                TransportButton(R.drawable.ic_next, "Next", 34.dp, Steel.Bright, NextAction::class.java)
+                if (roomForSkip) {
+                    TransportButton(
+                        R.drawable.ic_next, "Next", 36.dp, Steel.Bright,
+                        NextAction::class.java,
+                    )
+                }
             } else {
                 FavoriteButton(snapshot.isFavorite)
             }
@@ -438,6 +464,12 @@ class NowPlayingWidget : GlanceAppWidget() {
 
     companion object {
         private val PLATE_PADDING = 12.dp
+
+        /** Artwork on the bar layout, sized so the transport still fits at 180dp. */
+        private val COMPACT_ART = 40.dp
+
+        /** Below this, a bar-height widget carries play/pause only. */
+        private val COMPACT_SKIP_MIN_WIDTH = 250.dp
 
         /** How far ahead the widget lists. Beyond this, open the app. */
         private const val QUEUE_WINDOW = 40

@@ -33,6 +33,21 @@ enum class VisualizerMode {
 
 enum class LibrarySort { TITLE, ARTIST, ALBUM, DATE_ADDED, PLAY_COUNT, DURATION }
 
+enum class NormalizationMode {
+    /** Play every file at the level it was mastered at. */
+    OFF,
+
+    /** Even out every track against every other, regardless of album. */
+    TRACK,
+
+    /**
+     * Even out albums against each other while leaving the relative loudness
+     * *within* an album alone — which is what you want for anything mastered as
+     * one continuous piece.
+     */
+    ALBUM,
+}
+
 data class Settings(
     val minTrackDurationSec: Int = 20,
     val excludedFolders: Set<String> = emptySet(),
@@ -42,6 +57,9 @@ data class Settings(
     val playThresholdPercent: Int = 50,
     val crossfadeMs: Int = 0,
     val skipSilence: Boolean = false,
+    val normalizationMode: NormalizationMode = NormalizationMode.OFF,
+    /** Applied on top of the file's own ReplayGain value. */
+    val normalizationPreampDb: Int = 0,
     val resumeOnHeadsetConnect: Boolean = false,
     val keepScreenOnWithLyrics: Boolean = true,
     val librarySort: LibrarySort = LibrarySort.TITLE,
@@ -61,6 +79,10 @@ class SettingsStore(private val context: Context) {
             playThresholdPercent = p[Keys.PLAY_THRESHOLD] ?: 50,
             crossfadeMs = p[Keys.CROSSFADE] ?: 0,
             skipSilence = p[Keys.SKIP_SILENCE] ?: false,
+            normalizationMode = p[Keys.NORMALIZATION]
+                ?.let { runCatching { NormalizationMode.valueOf(it) }.getOrNull() }
+                ?: NormalizationMode.OFF,
+            normalizationPreampDb = p[Keys.NORMALIZATION_PREAMP] ?: 0,
             resumeOnHeadsetConnect = p[Keys.RESUME_ON_HEADSET] ?: false,
             keepScreenOnWithLyrics = p[Keys.KEEP_SCREEN_ON] ?: true,
             librarySort = p[Keys.LIBRARY_SORT]?.let { runCatching { LibrarySort.valueOf(it) }.getOrNull() }
@@ -77,6 +99,8 @@ class SettingsStore(private val context: Context) {
     suspend fun setPlayThresholdPercent(percent: Int) = put(Keys.PLAY_THRESHOLD, percent.coerceIn(10, 95))
     suspend fun setCrossfadeMs(ms: Int) = put(Keys.CROSSFADE, ms.coerceIn(0, 12_000))
     suspend fun setSkipSilence(enabled: Boolean) = put(Keys.SKIP_SILENCE, enabled)
+    suspend fun setNormalizationMode(mode: NormalizationMode) = put(Keys.NORMALIZATION, mode.name)
+    suspend fun setNormalizationPreamp(db: Int) = put(Keys.NORMALIZATION_PREAMP, db.coerceIn(-15, 15))
     suspend fun setResumeOnHeadsetConnect(enabled: Boolean) = put(Keys.RESUME_ON_HEADSET, enabled)
     suspend fun setKeepScreenOnWithLyrics(enabled: Boolean) = put(Keys.KEEP_SCREEN_ON, enabled)
     suspend fun setLibrarySort(sort: LibrarySort) = put(Keys.LIBRARY_SORT, sort.name)
@@ -95,6 +119,8 @@ class SettingsStore(private val context: Context) {
         val PLAY_THRESHOLD = intPreferencesKey("play_threshold_percent")
         val CROSSFADE = intPreferencesKey("crossfade_ms")
         val SKIP_SILENCE = booleanPreferencesKey("skip_silence")
+        val NORMALIZATION = stringPreferencesKey("normalization_mode")
+        val NORMALIZATION_PREAMP = intPreferencesKey("normalization_preamp_db")
         val RESUME_ON_HEADSET = booleanPreferencesKey("resume_on_headset")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on_lyrics")
         val LIBRARY_SORT = stringPreferencesKey("library_sort")

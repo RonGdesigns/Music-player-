@@ -73,3 +73,22 @@ data class LyricsOverride(
     val synced: Boolean,
     val updatedAt: Long,
 )
+
+/**
+ * ReplayGain values read out of a file's tags, cached so the file is opened once
+ * rather than on every play. [scannedAt] lets a future version re-read files
+ * whose tags may have changed without invalidating the whole table.
+ *
+ * A row exists even when the file turned out to have no gain tags at all — the
+ * absence is worth caching too, otherwise every untagged track reopens its file
+ * every time it plays.
+ */
+@Entity(tableName = "track_gain")
+data class TrackGain(
+    @PrimaryKey val mediaId: String,
+    val trackGainDb: Float?,
+    val albumGainDb: Float?,
+    val trackPeak: Float?,
+    val albumPeak: Float?,
+    val scannedAt: Long,
+)
