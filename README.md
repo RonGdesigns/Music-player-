@@ -37,6 +37,8 @@ starts from there.
 - Songs, Albums, Artists, Folders, hand-built playlists
 - Search across title, artist and album
 - A minimum track length, so interludes and voice memos stay out
+- Long-press any track for play next, add to queue, favourite, add to a
+  playlist, and jump to its album or artist
 
 **Play counts and automatic playlists**
 

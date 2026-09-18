@@ -64,6 +64,7 @@ import com.irondigital.spindle.ui.components.Artwork
 import com.irondigital.spindle.ui.components.Groove
 import com.irondigital.spindle.ui.components.LampIconButton
 import com.irondigital.spindle.ui.components.TickScale
+import com.irondigital.spindle.ui.components.TrackActionSheet
 import com.irondigital.spindle.ui.components.TrackRow
 import com.irondigital.spindle.ui.components.formatTotalDuration
 import com.irondigital.spindle.ui.theme.Corner
@@ -128,7 +129,7 @@ fun LibraryScreen(
 
         when (tab) {
             LibraryTab.HOME -> HomeTab(libraryViewModel, playerViewModel, onOpen, onOpenNowPlaying)
-            LibraryTab.SONGS -> SongsTab(libraryViewModel, playerViewModel, onOpenNowPlaying)
+            LibraryTab.SONGS -> SongsTab(libraryViewModel, playerViewModel, onOpen, onOpenNowPlaying)
             LibraryTab.ALBUMS -> AlbumsTab(libraryViewModel, onOpen)
             LibraryTab.ARTISTS -> ArtistsTab(libraryViewModel, onOpen)
             LibraryTab.FOLDERS -> FoldersTab(libraryViewModel, onOpen)
@@ -541,12 +542,16 @@ private fun ShelfRow(playlist: SmartPlaylist, onClick: () -> Unit) {
 private fun SongsTab(
     libraryViewModel: LibraryViewModel,
     playerViewModel: PlayerViewModel,
+    onOpen: (Destination) -> Unit,
     onOpenNowPlaying: () -> Unit,
 ) {
     val tracks by libraryViewModel.tracks.collectAsStateWithLifecycle()
     val playback by playerViewModel.playback.collectAsStateWithLifecycle()
     val favorites by playerViewModel.favoriteIds.collectAsStateWithLifecycle()
     val counts by playerViewModel.playCounts.collectAsStateWithLifecycle()
+    val playlists by libraryViewModel.playlists.collectAsStateWithLifecycle()
+
+    var actionsFor by remember { mutableStateOf<Track?>(null) }
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         items(tracks, key = { it.mediaId }) { track ->
@@ -560,9 +565,26 @@ private fun SongsTab(
                     playerViewModel.play(tracks, tracks.indexOf(track))
                     onOpenNowPlaying()
                 },
-                onLongClick = { playerViewModel.playNext(listOf(track)) },
+                onLongClick = { actionsFor = track },
             )
         }
+    }
+
+    actionsFor?.let { track ->
+        TrackActionSheet(
+            track = track,
+            isFavorite = track.mediaId in favorites,
+            playlists = playlists,
+            onPlayNext = { playerViewModel.playNext(listOf(track)) },
+            onAddToQueue = { playerViewModel.addToQueue(listOf(track)) },
+            onToggleFavorite = {
+                playerViewModel.setFavorite(track.mediaId, track.mediaId !in favorites)
+            },
+            onAddToPlaylist = { libraryViewModel.addToPlaylist(it, listOf(track.mediaId)) },
+            onGoToAlbum = { onOpen(Destination.Album(track.albumId)) },
+            onGoToArtist = { onOpen(Destination.Artist(track.artist)) },
+            onDismiss = { actionsFor = null },
+        )
     }
 }
 

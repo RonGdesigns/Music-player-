@@ -80,8 +80,8 @@ fun MiniPlayerBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(onClick = onOpen)
-                    .padding(horizontal = Space.m, vertical = Space.s)
-                    .navigationBarsPadding(),
+                    .navigationBarsPadding()
+                    .padding(horizontal = Space.m, vertical = Space.s),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Artwork(

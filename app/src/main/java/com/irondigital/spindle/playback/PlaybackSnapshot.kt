@@ -145,13 +145,6 @@ class PlaybackSnapshotStore(private val context: Context) {
         context.playbackDataStore.edit { it[KEY] = snapshot.toJson() }
     }
 
-    /** Synchronous read for the widget's own process, where a Flow is awkward. */
-    suspend fun read(): PlaybackSnapshot {
-        var result = PlaybackSnapshot.EMPTY
-        context.playbackDataStore.edit { result = PlaybackSnapshot.fromJson(it[KEY]) }
-        return result
-    }
-
     private companion object {
         val KEY = stringPreferencesKey("snapshot")
     }

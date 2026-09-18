@@ -40,6 +40,7 @@ import com.irondigital.spindle.data.model.Track
 import com.irondigital.spindle.ui.PlayerViewModel
 import com.irondigital.spindle.ui.components.LampIconButton
 import com.irondigital.spindle.ui.components.TickScale
+import com.irondigital.spindle.ui.components.TrackActionSheet
 import com.irondigital.spindle.ui.components.TrackRow
 import com.irondigital.spindle.ui.components.formatTotalDuration
 import com.irondigital.spindle.ui.theme.Ground
@@ -76,6 +77,8 @@ fun TrackListScreen(
     val counts by playerViewModel.playCounts.collectAsStateWithLifecycle()
 
     var addingToPlaylist by remember { mutableStateOf(false) }
+    var actionsFor by remember { mutableStateOf<Track?>(null) }
+    val playlists by libraryViewModel.playlists.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -118,7 +121,7 @@ fun TrackListScreen(
                             else -> null
                         },
                         onClick = { playerViewModel.play(tracks, index) },
-                        onLongClick = { playerViewModel.playNext(listOf(track)) },
+                        onLongClick = { actionsFor = track },
                     )
                     if (onRemoveTrack != null) {
                         LampIconButton(
@@ -144,6 +147,21 @@ fun TrackListScreen(
                 }
             }
         }
+    }
+
+    actionsFor?.let { track ->
+        TrackActionSheet(
+            track = track,
+            isFavorite = track.mediaId in favorites,
+            playlists = playlists,
+            onPlayNext = { playerViewModel.playNext(listOf(track)) },
+            onAddToQueue = { playerViewModel.addToQueue(listOf(track)) },
+            onToggleFavorite = {
+                playerViewModel.setFavorite(track.mediaId, track.mediaId !in favorites)
+            },
+            onAddToPlaylist = { libraryViewModel.addToPlaylist(it, listOf(track.mediaId)) },
+            onDismiss = { actionsFor = null },
+        )
     }
 
     if (addingToPlaylist) {

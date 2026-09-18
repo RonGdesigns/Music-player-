@@ -246,8 +246,9 @@ private fun LibraryPermissionGate(
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { result ->
+        // Only flip the flag; the LaunchedEffect below owns the follow-up work,
+        // so the scan is not kicked off twice.
         granted = result
-        if (result) onGranted()
     }
 
     // Notifications are requested separately and only after the library works,
