@@ -15,9 +15,13 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.session.CommandButton
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
+import androidx.media3.session.MediaLibraryService.LibraryParams
+import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
@@ -49,13 +53,14 @@ import kotlinx.coroutines.launch
  * queue no matter which surface you touch.
  */
 @OptIn(UnstableApi::class)
-class PlaybackService : MediaSessionService() {
+class PlaybackService : MediaLibraryService() {
 
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
 
     private lateinit var player: ExoPlayer
-    private var mediaSession: MediaSession? = null
+    private var mediaSession: MediaLibrarySession? = null
+    private lateinit var autoLibrary: AutoMediaLibrary
     private lateinit var tracker: PlayCountTracker
     private lateinit var loudness: LoudnessController
     private lateinit var effects: AudioEffectsController
@@ -71,6 +76,7 @@ class PlaybackService : MediaSessionService() {
         super.onCreate()
 
         val app = spindle
+        autoLibrary = AutoMediaLibrary(app)
 
         player = ExoPlayer.Builder(this)
             .setAudioAttributes(
@@ -112,8 +118,7 @@ class PlaybackService : MediaSessionService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
-        mediaSession = MediaSession.Builder(this, player)
-            .setCallback(SessionCallback())
+        mediaSession = MediaLibrarySession.Builder(this, player, SessionCallback())
             .setSessionActivity(sessionActivity)
             .build()
 
@@ -135,10 +140,40 @@ class PlaybackService : MediaSessionService() {
             }
             .launchIn(serviceScope)
 
-        serviceScope.launch { restoreQueueIfEmpty() }
+        serviceScope.launch {
+            restoreQueueIfEmpty()
+            // Android Auto can be the first surface that starts the app after
+            // boot, so make sure the browse tree has current MediaStore rows.
+            if (app.library.tracks.value.isEmpty()) {
+                runCatching { app.library.refresh() }
+                mediaSession?.let { session ->
+                    session.notifyChildrenChanged(
+                        AutoMediaLibrary.SONGS_ID,
+                        app.library.tracks.value.size,
+                        null,
+                    )
+                    session.notifyChildrenChanged(
+                        AutoMediaLibrary.ALBUMS_ID,
+                        app.library.albums.value.size,
+                        null,
+                    )
+                    session.notifyChildrenChanged(
+                        AutoMediaLibrary.ARTISTS_ID,
+                        app.library.artists.value.size,
+                        null,
+                    )
+                    session.notifyChildrenChanged(
+                        AutoMediaLibrary.FOLDERS_ID,
+                        app.library.folders.value.size,
+                        null,
+                    )
+                }
+            }
+        }
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? =
+        mediaSession
 
     /**
      * When the user swipes the app away, playback that is actually happening
@@ -168,13 +203,14 @@ class PlaybackService : MediaSessionService() {
 
     // ------------------------------------------------------------- session
 
-    private inner class SessionCallback : MediaSession.Callback {
+    private inner class SessionCallback : MediaLibrarySession.Callback {
 
         override fun onConnect(
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
         ): MediaSession.ConnectionResult {
-            val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+            val sessionCommands =
+                MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
                 .add(SessionCommand(COMMAND_TOGGLE_FAVORITE, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_SET_SLEEP_TIMER, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_CANCEL_SLEEP_TIMER, Bundle.EMPTY))
@@ -184,6 +220,111 @@ class PlaybackService : MediaSessionService() {
                 .setAvailableSessionCommands(sessionCommands)
                 .setCustomLayout(ImmutableList.of(favoriteButton()))
                 .build()
+        }
+
+        override fun onGetLibraryRoot(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<MediaItem>> =
+            Futures.immediateFuture(LibraryResult.ofItem(autoLibrary.root(), params))
+
+        override fun onGetItem(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            mediaId: String,
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            val item = autoLibrary.item(mediaId)
+                ?: return Futures.immediateFuture(
+                    LibraryResult.ofError(SessionError.ERROR_BAD_VALUE)
+                )
+            return Futures.immediateFuture(LibraryResult.ofItem(item, null))
+        }
+
+        override fun onGetChildren(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            parentId: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val all = autoLibrary.children(parentId)
+            val from = (page * pageSize).coerceAtMost(all.size)
+            val to = (from + pageSize).coerceAtMost(all.size)
+            return Futures.immediateFuture(
+                LibraryResult.ofItemList(all.subList(from, to), params)
+            )
+        }
+
+        override fun onSearch(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<Void>> {
+            val count = autoLibrary.search(query).size
+            session.notifySearchResultChanged(browser, query, count, params)
+            return Futures.immediateFuture(LibraryResult.ofVoid(params))
+        }
+
+        override fun onGetSearchResult(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val all = autoLibrary.search(query)
+            val from = (page * pageSize).coerceAtMost(all.size)
+            val to = (from + pageSize).coerceAtMost(all.size)
+            return Futures.immediateFuture(
+                LibraryResult.ofItemList(all.subList(from, to), params)
+            )
+        }
+
+        override fun onAddMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: List<MediaItem>,
+        ): ListenableFuture<List<MediaItem>> =
+            Futures.immediateFuture(autoLibrary.resolvePlayable(mediaItems))
+
+        override fun onSetMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: List<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long,
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            if (mediaItems.size == 1) {
+                val requestedId = mediaItems.first().mediaId
+                val queue = autoLibrary.queueForSelection(requestedId)
+                if (queue != null) {
+                    return Futures.immediateFuture(
+                        MediaSession.MediaItemsWithStartPosition(
+                            queue.first,
+                            queue.second,
+                            if (startPositionMs == C.TIME_UNSET) 0L else startPositionMs,
+                        )
+                    )
+                }
+            }
+
+            val resolved = autoLibrary.resolvePlayable(mediaItems)
+            val safeIndex = when {
+                resolved.isEmpty() -> C.INDEX_UNSET
+                startIndex == C.INDEX_UNSET -> C.INDEX_UNSET
+                else -> startIndex.coerceIn(0, resolved.lastIndex)
+            }
+            return Futures.immediateFuture(
+                MediaSession.MediaItemsWithStartPosition(
+                    resolved,
+                    safeIndex,
+                    startPositionMs,
+                )
+            )
         }
 
         override fun onCustomCommand(

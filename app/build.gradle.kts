@@ -12,6 +12,11 @@ android {
     defaultConfig {
         applicationId = "com.irondigital.spindle"
         minSdk = 26
+
+        // The maintained FFmpegKit binaries are published for arm64-v8a.
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
@@ -83,6 +88,10 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.palette)
     implementation(libs.coil.compose)
+
+    // On-device link download + MP3 conversion without GPL-only dependencies.
+    implementation("dev.ffmpegkit-maintained:yt-dlp-android:2.0.2")
+    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-audio:8.1.7")
 
     testImplementation(libs.junit)
     // android.json is a stub that throws on the JVM, so the backup codec's

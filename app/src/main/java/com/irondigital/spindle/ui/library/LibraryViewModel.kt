@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.irondigital.spindle.data.db.Playlist
 import com.irondigital.spindle.data.db.TrackEdit
 import com.irondigital.spindle.data.media.ImportResult
+import com.irondigital.spindle.data.media.YoutubeDownloadResult
 import com.irondigital.spindle.data.model.AlbumGroup
 import com.irondigital.spindle.data.model.ArtistGroup
 import com.irondigital.spindle.data.model.FolderGroup
@@ -107,6 +108,9 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _importState = MutableStateFlow<ImportState>(ImportState.Idle)
     val importState: StateFlow<ImportState> = _importState.asStateFlow()
 
+    private val _youtubeImportState = MutableStateFlow<YoutubeImportState>(YoutubeImportState.Idle)
+    val youtubeImportState: StateFlow<YoutubeImportState> = _youtubeImportState.asStateFlow()
+
     val importSupported: Boolean get() = app.importer.isSupported
 
     init {
@@ -135,6 +139,46 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
     fun dismissImport() {
         _importState.value = ImportState.Idle
+    }
+
+    fun downloadYoutubeAudio(url: String) {
+        if (url.isBlank() || _youtubeImportState.value !is YoutubeImportState.Idle) return
+
+        viewModelScope.launch {
+            _youtubeImportState.value = YoutubeImportState.Running(percent = 0f, etaSeconds = 0L)
+
+            when (
+                val result = app.youtubeDownloader.download(url) { progress ->
+                    _youtubeImportState.value = YoutubeImportState.Running(
+                        percent = progress.percent,
+                        etaSeconds = progress.etaSeconds,
+                    )
+                }
+            ) {
+                is YoutubeDownloadResult.Success -> {
+                    _youtubeImportState.value = YoutubeImportState.Finalizing
+                    val imported = try {
+                        app.importer.importLocalFiles(result.download.files)
+                    } finally {
+                        app.youtubeDownloader.cleanUp(result.download)
+                    }
+
+                    app.library.refresh()
+                    _youtubeImportState.value = YoutubeImportState.Idle
+                    _importState.value = ImportState.Done(imported)
+                }
+
+                is YoutubeDownloadResult.Failed -> {
+                    _youtubeImportState.value = YoutubeImportState.Failed(result.reason)
+                }
+            }
+        }
+    }
+
+    fun dismissYoutubeImportError() {
+        if (_youtubeImportState.value is YoutubeImportState.Failed) {
+            _youtubeImportState.value = YoutubeImportState.Idle
+        }
     }
 
     suspend fun editFor(mediaId: String) = app.library.editFor(mediaId)
@@ -176,4 +220,15 @@ sealed interface ImportState {
         val added: List<ImportResult.Added> get() = results.filterIsInstance<ImportResult.Added>()
         val failed: List<ImportResult.Failed> get() = results.filterIsInstance<ImportResult.Failed>()
     }
+}
+
+/** Progress for the paste-a-YouTube-link converter. */
+sealed interface YoutubeImportState {
+    data object Idle : YoutubeImportState
+    data class Running(
+        val percent: Float,
+        val etaSeconds: Long,
+    ) : YoutubeImportState
+    data object Finalizing : YoutubeImportState
+    data class Failed(val reason: String) : YoutubeImportState
 }

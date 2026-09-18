@@ -36,6 +36,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.LibraryAdd
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -112,6 +113,7 @@ fun LibraryScreen(
 ) {
     var tab by rememberSaveable { mutableStateOf(LibraryTab.HOME) }
     var searching by rememberSaveable { mutableStateOf(false) }
+    var youtubeDialogOpen by rememberSaveable { mutableStateOf(false) }
 
     val scanState by libraryViewModel.scanState.collectAsStateWithLifecycle()
 
@@ -137,6 +139,9 @@ fun LibraryScreen(
             return@Column
         }
 
+        if (libraryViewModel.importSupported) {
+            YoutubeImportBar(onClick = { youtubeDialogOpen = true })
+        }
         TabBar(selected = tab, onSelect = { tab = it })
 
         if (scanState == LibraryRepository.ScanState.EMPTY) {
@@ -153,6 +158,122 @@ fun LibraryScreen(
             LibraryTab.LISTS -> ListsTab(libraryViewModel, onOpen)
         }
     }
+
+    if (youtubeDialogOpen) {
+        YoutubeLinkDialog(
+            onDismiss = { youtubeDialogOpen = false },
+            onDownload = { url ->
+                libraryViewModel.downloadYoutubeAudio(url)
+                youtubeDialogOpen = false
+            },
+        )
+    }
+}
+
+// ------------------------------------------------------------------ YouTube link converter
+
+@Composable
+private fun YoutubeImportBar(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = Space.gutter, vertical = Space.s),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Download,
+            contentDescription = null,
+            tint = Lamp.Bright,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(Space.m))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Paste YouTube link",
+                style = SpindleType.RowTitle,
+                color = Lamp.Bright,
+            )
+            Text(
+                text = "Convert a video or playlist to MP3 and add it to Spindle",
+                style = SpindleType.Data,
+                color = Steel.Dim,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun YoutubeLinkDialog(
+    onDismiss: () -> Unit,
+    onDownload: (String) -> Unit,
+) {
+    var url by rememberSaveable { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Ground.Plate,
+        title = {
+            Text(
+                text = "YouTube converter",
+                style = SpindleType.Section,
+                color = Ink.Primary,
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    text = "Paste a YouTube video or playlist link. Spindle will convert the audio to MP3 and add the finished tracks to Music/Spindle.",
+                    style = SpindleType.Body,
+                    color = Steel.Bright,
+                )
+                Spacer(Modifier.height(Space.m))
+                BasicTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    singleLine = true,
+                    textStyle = SpindleType.Body.copy(color = Ink.Primary),
+                    cursorBrush = SolidColor(Lamp.Bright),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(Corner.edge))
+                        .background(Ground.Deep)
+                        .padding(Space.m),
+                    decorationBox = { inner ->
+                        if (url.isBlank()) {
+                            Text(
+                                text = "https://youtube.com/...",
+                                style = SpindleType.Body,
+                                color = Steel.Engrave,
+                            )
+                        }
+                        inner()
+                    },
+                )
+                Spacer(Modifier.height(Space.m))
+                Text(
+                    text = "Use this for videos you own or have permission to save.",
+                    style = SpindleType.Data,
+                    color = Steel.Dim,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = url.isNotBlank(),
+                onClick = { onDownload(url.trim()) },
+            ) {
+                Text("Convert")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+    )
 }
 
 // ------------------------------------------------------------------ header
@@ -1040,21 +1161,97 @@ private fun ActionRow(
 @Composable
 fun ImportDialogs(libraryViewModel: LibraryViewModel) {
     val importState by libraryViewModel.importState.collectAsStateWithLifecycle()
+    val youtubeState by libraryViewModel.youtubeImportState.collectAsStateWithLifecycle()
     val playlists by libraryViewModel.playlists.collectAsStateWithLifecycle()
 
-    when (val state = importState) {
-        is ImportState.Running -> ImportProgressDialog(state.fileCount)
-        is ImportState.Done -> ImportResultDialog(
-            state = state,
-            playlists = playlists,
-            onAddToPlaylist = { playlistId ->
-                libraryViewModel.addToPlaylist(playlistId, state.added.map { it.mediaId })
-                libraryViewModel.dismissImport()
-            },
-            onDismiss = libraryViewModel::dismissImport,
+    when (val state = youtubeState) {
+        is YoutubeImportState.Running -> YoutubeProgressDialog(state = state)
+        YoutubeImportState.Finalizing -> YoutubeFinalizingDialog()
+        is YoutubeImportState.Failed -> YoutubeErrorDialog(
+            reason = state.reason,
+            onDismiss = libraryViewModel::dismissYoutubeImportError,
         )
-        ImportState.Idle -> Unit
+        YoutubeImportState.Idle -> when (val localState = importState) {
+            is ImportState.Running -> ImportProgressDialog(localState.fileCount)
+            is ImportState.Done -> ImportResultDialog(
+                state = localState,
+                playlists = playlists,
+                onAddToPlaylist = { playlistId ->
+                    libraryViewModel.addToPlaylist(playlistId, localState.added.map { it.mediaId })
+                    libraryViewModel.dismissImport()
+                },
+                onDismiss = libraryViewModel::dismissImport,
+            )
+            ImportState.Idle -> Unit
+        }
     }
+}
+
+@Composable
+private fun YoutubeProgressDialog(
+    state: YoutubeImportState.Running,
+) {
+    val percent = state.percent.toInt().coerceIn(0, 100)
+    val eta = state.etaSeconds
+
+    AlertDialog(
+        onDismissRequest = { },
+        containerColor = Ground.Plate,
+        title = { Text("Downloading & converting", style = SpindleType.Section, color = Ink.Primary) },
+        text = {
+            Text(
+                text = buildString {
+                    append("$percent%")
+                    if (eta > 0) append(" · about ${eta}s remaining")
+                    append("\nThis can take longer for a playlist.")
+                },
+                style = SpindleType.Body,
+                color = Steel.Bright,
+            )
+        },
+        confirmButton = { },
+    )
+}
+
+@Composable
+private fun YoutubeFinalizingDialog() {
+    AlertDialog(
+        onDismissRequest = { },
+        containerColor = Ground.Plate,
+        title = { Text("Adding to Spindle", style = SpindleType.Section, color = Ink.Primary) },
+        text = {
+            Text(
+                text = "The MP3 files are ready. Spindle is adding them to your music library.",
+                style = SpindleType.Body,
+                color = Steel.Bright,
+            )
+        },
+        confirmButton = { },
+    )
+}
+
+@Composable
+private fun YoutubeErrorDialog(
+    reason: String,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Ground.Plate,
+        title = { Text("Conversion failed", style = SpindleType.Section, color = Ink.Primary) },
+        text = {
+            Text(
+                text = reason,
+                style = SpindleType.Body,
+                color = Steel.Bright,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("OK")
+            }
+        },
+    )
 }
 
 @Composable

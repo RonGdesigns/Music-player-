@@ -9,6 +9,7 @@ import android.provider.MediaStore
 import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /** What happened to one file the user picked. */
 sealed interface ImportResult {
@@ -39,6 +40,15 @@ class AudioImporter(private val context: Context) {
         if (!isSupported) {
             return@withContext sources.map {
                 ImportResult.Failed(displayNameOf(it), "Importing needs Android 10 or newer")
+            }
+        }
+        sources.map { importOne(it) }
+    }
+
+    suspend fun importLocalFiles(sources: List<File>): List<ImportResult> = withContext(Dispatchers.IO) {
+        if (!isSupported) {
+            return@withContext sources.map {
+                ImportResult.Failed(it.name, "Importing needs Android 10 or newer")
             }
         }
         sources.map { importOne(it) }
@@ -80,6 +90,53 @@ class AudioImporter(private val context: Context) {
                 // A pending row that never received bytes would linger invisibly.
                 resolver.delete(target, null, null)
                 return ImportResult.Failed(name, "The file was empty or unreadable")
+            }
+
+            resolver.update(
+                target,
+                ContentValues().apply { put(MediaStore.Audio.Media.IS_PENDING, 0) },
+                null,
+                null,
+            )
+
+            ImportResult.Added(mediaId = target.lastPathSegment.orEmpty(), displayName = name)
+        }.getOrElse { error ->
+            ImportResult.Failed(name, error.message ?: "Could not import that file")
+        }
+    }
+
+    private fun importOne(source: File): ImportResult {
+        val name = source.name
+        return runCatching {
+            if (!source.isFile || source.length() <= 0L) {
+                return ImportResult.Failed(name, "The converted file was empty or unreadable")
+            }
+
+            val mime = guessMimeFromName(name)
+                ?: return ImportResult.Failed(name, "That does not look like an audio file")
+
+            val resolver = context.contentResolver
+            val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val pending = ContentValues().apply {
+                put(MediaStore.Audio.Media.DISPLAY_NAME, name)
+                put(MediaStore.Audio.Media.MIME_TYPE, mime)
+                put(MediaStore.Audio.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MUSIC}/$IMPORT_FOLDER")
+                put(MediaStore.Audio.Media.IS_MUSIC, 1)
+                put(MediaStore.Audio.Media.IS_PENDING, 1)
+            }
+
+            val target = resolver.insert(collection, pending)
+                ?: return ImportResult.Failed(name, "Could not create the file")
+
+            val copied = source.inputStream().use { input ->
+                resolver.openOutputStream(target)?.use { output ->
+                    input.copyTo(output)
+                } ?: 0L
+            }
+
+            if (copied <= 0L) {
+                resolver.delete(target, null, null)
+                return ImportResult.Failed(name, "The converted file was empty or unreadable")
             }
 
             resolver.update(
