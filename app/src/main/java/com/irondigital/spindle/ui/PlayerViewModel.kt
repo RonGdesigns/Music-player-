@@ -3,6 +3,7 @@ package com.irondigital.spindle.ui
 import android.app.Application
 import android.content.ComponentName
 import android.os.Bundle
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
@@ -48,6 +49,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     private var controller: MediaController? = null
     private var positionJob: Job? = null
+    private var connectJob: Job? = null
 
     private val _playback = MutableStateFlow(PlaybackUiState())
     val playback: StateFlow<PlaybackUiState> = _playback.asStateFlow()
@@ -79,7 +81,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
-        viewModelScope.launch { connect() }
+        ensureConnected()
 
         // Lyrics follow the track, and loading them touches the disk, so this
         // is deliberately off the transition path.
@@ -131,22 +133,99 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             .launchIn(viewModelScope)
     }
 
+    /**
+     * The controller, but only while it is actually usable.
+     *
+     * A MediaController survives its service dying — it just stops being
+     * connected, and every command on it becomes a silent no-op. Reading
+     * through this rather than the field is what stops a dead controller
+     * looking exactly like a broken button.
+     */
+    private val liveController: MediaController?
+        get() = controller?.takeIf { it.isConnected }
+
+    /**
+     * Connects, retrying a few times.
+     *
+     * The service may not be up yet on a cold start, and the first attempt can
+     * simply lose that race. Giving up after one failure left every transport
+     * control permanently dead for the life of the screen while the rest of the
+     * UI carried on working, which is indistinguishable from the buttons being
+     * broken — and the failure was swallowed, so there was nothing in the log
+     * to say otherwise.
+     */
     private suspend fun connect() {
         val token = SessionToken(
             getApplication(),
             ComponentName(getApplication(), PlaybackService::class.java),
         )
-        val connected = runCatching {
-            MediaController.Builder(getApplication<Application>(), token).buildAsync().await()
-        }.getOrNull() ?: return
 
-        controller = connected
-        connected.addListener(ControllerListener())
-        syncFromController()
+        repeat(CONNECT_ATTEMPTS) { attempt ->
+            val attemptResult = runCatching {
+                MediaController.Builder(getApplication<Application>(), token)
+                    .setListener(ConnectionListener())
+                    .buildAsync()
+                    .await()
+            }
+
+            val connected = attemptResult.getOrNull()
+            if (connected != null && connected.isConnected) {
+                controller = connected
+                connected.addListener(ControllerListener())
+                syncFromController()
+                return
+            }
+
+            // Released rather than leaked: a controller that connected and then
+            // dropped still holds a binding.
+            connected?.let { runCatching { it.release() } }
+            Log.w(TAG, "Could not reach the player (attempt ${attempt + 1})", attemptResult.exceptionOrNull())
+            if (attempt < CONNECT_ATTEMPTS - 1) delay(RECONNECT_DELAY_MS * (attempt + 1))
+        }
+    }
+
+    /** Starts a connection attempt unless one is already usable or running. */
+    private fun ensureConnected() {
+        if (liveController != null) return
+        if (connectJob?.isActive == true) return
+        connectJob = viewModelScope.launch { connect() }
+    }
+
+    private suspend fun awaitController(): MediaController? {
+        ensureConnected()
+        connectJob?.join()
+        return liveController
+    }
+
+    /**
+     * Runs a transport command, reconnecting first if the session has gone.
+     *
+     * The press is carried across the reconnect rather than dropped. Losing the
+     * first tap and working on the second is precisely the behavior that makes
+     * an app feel broken.
+     */
+    private fun command(block: (MediaController) -> Unit) {
+        val ready = liveController
+        if (ready != null) {
+            block(ready)
+            return
+        }
+        viewModelScope.launch { awaitController()?.let(block) }
+    }
+
+    private inner class ConnectionListener : MediaController.Listener {
+        override fun onDisconnected(controller: MediaController) {
+            // The service was stopped — swiped away while paused, most often.
+            // Dropping the reference here is what lets the next press rebuild it.
+            if (this@PlayerViewModel.controller === controller) {
+                this@PlayerViewModel.controller = null
+            }
+        }
     }
 
     override fun onCleared() {
         positionJob?.cancel()
+        connectJob?.cancel()
         controller?.release()
         controller = null
         super.onCleared()
@@ -160,26 +239,25 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
      * behave the way people expect.
      */
     fun play(tracks: List<Track>, startIndex: Int = 0) {
-        val controller = controller ?: return
         if (tracks.isEmpty()) return
-        controller.setMediaItems(
-            tracks.map { it.toMediaItem() },
-            startIndex.coerceIn(0, tracks.lastIndex),
-            0L,
-        )
-        controller.prepare()
-        controller.play()
+        command { controller ->
+            controller.setMediaItems(
+                tracks.map { it.toMediaItem() },
+                startIndex.coerceIn(0, tracks.lastIndex),
+                0L,
+            )
+            controller.prepare()
+            controller.play()
+        }
     }
 
     fun shufflePlay(tracks: List<Track>) {
-        val controller = controller ?: return
         if (tracks.isEmpty()) return
-        controller.shuffleModeEnabled = true
+        command { it.shuffleModeEnabled = true }
         play(tracks, tracks.indices.random())
     }
 
-    fun playPause() {
-        val controller = controller ?: return
+    fun playPause() = command { controller ->
         if (controller.isPlaying) {
             controller.pause()
         } else {
@@ -188,18 +266,14 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun next() = controller?.seekToNextMediaItem()
-    fun previous() = controller?.seekToPreviousMediaItem()
-    fun seekTo(positionMs: Long) = controller?.seekTo(positionMs)
-    fun seekToQueueIndex(index: Int) = controller?.seekTo(index, 0L)
+    fun next() = command { it.seekToNextMediaItem() }
+    fun previous() = command { it.seekToPreviousMediaItem() }
+    fun seekTo(positionMs: Long) = command { it.seekTo(positionMs) }
+    fun seekToQueueIndex(index: Int) = command { it.seekTo(index, 0L) }
 
-    fun toggleShuffle() {
-        val controller = controller ?: return
-        controller.shuffleModeEnabled = !controller.shuffleModeEnabled
-    }
+    fun toggleShuffle() = command { it.shuffleModeEnabled = !it.shuffleModeEnabled }
 
-    fun cycleRepeat() {
-        val controller = controller ?: return
+    fun cycleRepeat() = command { controller ->
         controller.repeatMode = when (controller.repeatMode) {
             Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
             Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
@@ -208,27 +282,23 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /** Appends to the end of the queue without disturbing what is playing. */
-    fun addToQueue(tracks: List<Track>) {
-        val controller = controller ?: return
+    fun addToQueue(tracks: List<Track>) = command { controller ->
         controller.addMediaItems(tracks.map { it.toMediaItem() })
         if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
     }
 
     /** Inserts directly after the current track. */
-    fun playNext(tracks: List<Track>) {
-        val controller = controller ?: return
+    fun playNext(tracks: List<Track>) = command { controller ->
         val insertAt = (controller.currentMediaItemIndex + 1).coerceAtMost(controller.mediaItemCount)
         controller.addMediaItems(insertAt, tracks.map { it.toMediaItem() })
         if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
     }
 
-    fun removeFromQueue(index: Int) {
-        val controller = controller ?: return
+    fun removeFromQueue(index: Int) = command { controller ->
         if (index in 0 until controller.mediaItemCount) controller.removeMediaItem(index)
     }
 
-    fun moveInQueue(from: Int, to: Int) {
-        val controller = controller ?: return
+    fun moveInQueue(from: Int, to: Int) = command { controller ->
         if (from in 0 until controller.mediaItemCount && to in 0 until controller.mediaItemCount) {
             controller.moveMediaItem(from, to)
         }
@@ -246,21 +316,25 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun setSleepTimer(minutes: Int, endOfTrack: Boolean) {
-        controller?.sendCustomCommand(
-            SessionCommand(PlaybackService.COMMAND_SET_SLEEP_TIMER, Bundle.EMPTY),
-            Bundle().apply {
-                putInt(PlaybackService.EXTRA_SLEEP_MINUTES, minutes)
-                putBoolean(PlaybackService.EXTRA_SLEEP_END_OF_TRACK, endOfTrack)
-            },
-        )
+        command { controller ->
+            controller.sendCustomCommand(
+                SessionCommand(PlaybackService.COMMAND_SET_SLEEP_TIMER, Bundle.EMPTY),
+                Bundle().apply {
+                    putInt(PlaybackService.EXTRA_SLEEP_MINUTES, minutes)
+                    putBoolean(PlaybackService.EXTRA_SLEEP_END_OF_TRACK, endOfTrack)
+                },
+            )
+        }
         _playback.value = _playback.value.copy(sleepTimerMinutes = minutes)
     }
 
     fun cancelSleepTimer() {
-        controller?.sendCustomCommand(
-            SessionCommand(PlaybackService.COMMAND_CANCEL_SLEEP_TIMER, Bundle.EMPTY),
-            Bundle.EMPTY,
-        )
+        command {
+            it.sendCustomCommand(
+                SessionCommand(PlaybackService.COMMAND_CANCEL_SLEEP_TIMER, Bundle.EMPTY),
+                Bundle.EMPTY,
+            )
+        }
         _playback.value = _playback.value.copy(sleepTimerMinutes = 0)
     }
 
@@ -325,7 +399,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun syncFromController() {
-        val controller = controller ?: return
+        val controller = liveController ?: return
 
         _playback.value = PlaybackUiState(
             mediaId = controller.currentMediaItem?.mediaId,
@@ -348,7 +422,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun resolveQueue() {
-        val controller = controller ?: return
+        val controller = liveController ?: return
         _queue.value = (0 until controller.mediaItemCount).mapNotNull { index ->
             app.library.trackFor(controller.getMediaItemAt(index).mediaId)
         }
@@ -401,6 +475,12 @@ data class PlaybackUiState(
     val progress: Float
         get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
 }
+
+private const val TAG = "SpindlePlayer"
+
+/** Connection retries, and how long to wait between them. */
+private const val CONNECT_ATTEMPTS = 3
+private const val RECONNECT_DELAY_MS = 400L
 
 /** What a lyrics lookup is doing, for the one line the pane shows about it. */
 sealed interface LyricsLookupState {

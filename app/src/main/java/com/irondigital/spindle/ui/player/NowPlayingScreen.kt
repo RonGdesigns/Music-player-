@@ -345,9 +345,13 @@ private fun TransportBlock(
         modifier = Modifier
             .fillMaxWidth()
             .background(Ground.Deep.copy(alpha = 0.55f))
-            .padding(horizontal = Space.gutter)
             .padding(top = Space.m, bottom = Space.l),
     ) {
+        // The gutter is applied per block rather than to the whole column, so
+        // the transport row can run wider than the text above it. At the full
+        // gutter the five controls left about 11dp between them, and play and
+        // next — the two pressed most — sat closest together of all.
+        Column(modifier = Modifier.padding(horizontal = Space.gutter)) {
         Text(
             text = title,
             style = SpindleType.Display,
@@ -409,10 +413,14 @@ private fun TransportBlock(
             )
         }
 
+        }
+
         Spacer(Modifier.height(Space.m))
 
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Space.s),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -460,7 +468,9 @@ private fun TransportBlock(
         Spacer(Modifier.height(Space.s))
 
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Space.gutter),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
