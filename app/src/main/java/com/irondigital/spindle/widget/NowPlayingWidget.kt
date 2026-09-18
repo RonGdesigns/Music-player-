@@ -90,27 +90,35 @@ class NowPlayingWidget : GlanceAppWidget() {
                 } else {
                     val showQueue = size.height >= QUEUE_SIZE.height
                     val showProgress = size.height >= CARD_SIZE.height
-                    val showExtraControls = size.width >= CARD_SIZE.width
+                    val compact = !showProgress
+                    val showExtraControls = size.width >= EXTRA_CONTROLS_MIN_WIDTH
 
                     Column(modifier = GlanceModifier.fillMaxSize()) {
                         NowPlayingHead(
                             snapshot = snapshot,
                             art = art,
-                            compact = !showProgress,
-                            width = size.width,
+                            compact = compact,
+                            showFavorite = !compact && size.width >= CARD_SIZE.width,
                         )
 
                         if (showProgress) {
-                            Spacer(GlanceModifier.height(10.dp))
-                            ProgressRule(snapshot)
                             Spacer(GlanceModifier.height(6.dp))
-                            TransportRow(snapshot, showExtraControls)
-                        } else {
-                            Spacer(GlanceModifier.height(2.dp))
+                            ProgressRule(snapshot)
                         }
 
+                        Spacer(GlanceModifier.height(if (compact) 2.dp else 6.dp))
+                        // Previous / play-pause / next are never optional. The
+                        // old compact branch put controls in the title row and
+                        // some launchers measured that weighted row so narrowly
+                        // the trailing buttons vanished completely.
+                        TransportRow(
+                            snapshot = snapshot,
+                            showExtras = showExtraControls,
+                            compact = compact,
+                        )
+
                         if (showQueue) {
-                            Spacer(GlanceModifier.height(10.dp))
+                            Spacer(GlanceModifier.height(8.dp))
                             EngravedRule()
                             Spacer(GlanceModifier.height(6.dp))
                             QueueList(snapshot)
@@ -153,9 +161,9 @@ class NowPlayingWidget : GlanceAppWidget() {
         snapshot: PlaybackSnapshot,
         art: Bitmap?,
         compact: Boolean,
-        width: androidx.compose.ui.unit.Dp,
+        showFavorite: Boolean,
     ) {
-        val artSize = if (compact) COMPACT_ART else 60.dp
+        val artSize = if (compact) COMPACT_ART else 52.dp
 
         // RemoteViews has no way to say "drop this if it does not fit" — a row
         // whose fixed children outgrow it just squeezes them into each other,
@@ -165,7 +173,6 @@ class NowPlayingWidget : GlanceAppWidget() {
         // At the 180dp minimum, 24dp of plate padding leaves 156dp: artwork and
         // its gutter take 52, the play button 40, and the title needs the rest.
         // Skip and next only appear once there is genuine room for them.
-        val roomForSkip = width >= COMPACT_SKIP_MIN_WIDTH
         Row(
             modifier = GlanceModifier.fillMaxWidth(),
             verticalAlignment = Alignment.Vertical.CenterVertically,
@@ -217,22 +224,8 @@ class NowPlayingWidget : GlanceAppWidget() {
                 )
             }
 
-            if (compact) {
+            if (showFavorite) {
                 Spacer(GlanceModifier.width(4.dp))
-                if (roomForSkip) {
-                    TransportButton(
-                        R.drawable.ic_previous, "Previous", 36.dp, Steel.Bright,
-                        PreviousAction::class.java,
-                    )
-                }
-                PlayPauseButton(snapshot.isPlaying, 40.dp)
-                if (roomForSkip) {
-                    TransportButton(
-                        R.drawable.ic_next, "Next", 36.dp, Steel.Bright,
-                        NextAction::class.java,
-                    )
-                }
-            } else {
                 FavoriteButton(snapshot.isFavorite)
             }
         }
@@ -276,7 +269,13 @@ class NowPlayingWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun TransportRow(snapshot: PlaybackSnapshot, showExtras: Boolean) {
+    private fun TransportRow(
+        snapshot: PlaybackSnapshot,
+        showExtras: Boolean,
+        compact: Boolean,
+    ) {
+        val sideSize = if (compact) 32.dp else 42.dp
+        val playSize = if (compact) 36.dp else 46.dp
         Row(
             modifier = GlanceModifier.fillMaxWidth(),
             verticalAlignment = Alignment.Vertical.CenterVertically,
@@ -292,11 +291,23 @@ class NowPlayingWidget : GlanceAppWidget() {
                 Spacer(GlanceModifier.defaultWeight())
             }
 
-            TransportButton(R.drawable.ic_previous, "Previous", 42.dp, Steel.Bright, PreviousAction::class.java)
+            TransportButton(
+                R.drawable.ic_previous,
+                "Previous",
+                sideSize,
+                Steel.Bright,
+                PreviousAction::class.java,
+            )
             Spacer(GlanceModifier.width(4.dp))
-            PlayPauseButton(snapshot.isPlaying, 46.dp)
+            PlayPauseButton(snapshot.isPlaying, playSize)
             Spacer(GlanceModifier.width(4.dp))
-            TransportButton(R.drawable.ic_next, "Next", 42.dp, Steel.Bright, NextAction::class.java)
+            TransportButton(
+                R.drawable.ic_next,
+                "Next",
+                sideSize,
+                Steel.Bright,
+                NextAction::class.java,
+            )
 
             if (showExtras) {
                 Spacer(GlanceModifier.defaultWeight())
@@ -463,20 +474,20 @@ class NowPlayingWidget : GlanceAppWidget() {
     }
 
     companion object {
-        private val PLATE_PADDING = 12.dp
+        private val PLATE_PADDING = 8.dp
 
         /** Artwork on the bar layout, sized so the transport still fits at 180dp. */
         private val COMPACT_ART = 40.dp
 
-        /** Below this, a bar-height widget carries play/pause only. */
-        private val COMPACT_SKIP_MIN_WIDTH = 250.dp
+        /** Shuffle/repeat only appear when the host gives them real room. */
+        private val EXTRA_CONTROLS_MIN_WIDTH = 300.dp
 
         /** How far ahead the widget lists. Beyond this, open the app. */
         private const val QUEUE_WINDOW = 40
 
-        private val BAR_SIZE = DpSize(180.dp, 72.dp)
-        private val CARD_SIZE = DpSize(250.dp, 132.dp)
-        private val QUEUE_SIZE = DpSize(250.dp, 210.dp)
+        private val BAR_SIZE = DpSize(250.dp, 96.dp)
+        private val CARD_SIZE = DpSize(250.dp, 150.dp)
+        private val QUEUE_SIZE = DpSize(250.dp, 230.dp)
         private val TALL_SIZE = DpSize(300.dp, 340.dp)
 
         suspend fun refresh(context: Context) {
