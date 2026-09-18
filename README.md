@@ -199,6 +199,27 @@ track has been played on both phones the higher count wins, and a playlist whose
 name is already taken arrives beside it rather than merging into it. The report
 afterwards says exactly what matched and what did not.
 
+**Android Auto**
+
+Browse Songs, Albums, Artists and Folders from the car screen, with voice
+search. The same session drives it as everything else, so the queue you left on
+the phone is the queue in the car.
+
+**Sideloaded apps do not appear in Android Auto until you allow them**, and this
+is the usual reason Spindle is missing when everything else looks right. Android
+Auto only lists apps it got from the Play Store unless you tell it otherwise:
+
+1. Open the Android Auto settings on the phone (Settings → Connected devices →
+   Android Auto, or the standalone Android Auto app).
+2. Scroll to the bottom and tap **Version** ten times to unlock developer mode.
+3. Open the overflow menu → **Developer settings**.
+4. Turn on **Unknown sources**.
+5. Reconnect the car.
+
+Until that is on, Android Auto sees Spindle as an ordinary phone app and offers
+only "open it on the phone", which is exactly what it looks like when something
+is broken.
+
 **Playback**
 - Media3 / ExoPlayer, gapless, with proper audio focus
 - Pauses when headphones are unplugged
@@ -321,6 +342,9 @@ measured one.
 - Editing song details changes how Spindle shows a track, not the tags inside
   the file. Other apps will still see the original metadata.
 - Importing requires Android 10 or newer (see above).
+- Android Auto will not list a sideloaded build until Unknown sources is
+  enabled in its developer settings (see above). Nothing in the app can work
+  around that.
 - Deleting duplicate files uses Android's consent dialog, which exists from
   Android 11. On older versions the delete is attempted directly and the system
   may refuse it; the screen says so rather than pretending it worked.

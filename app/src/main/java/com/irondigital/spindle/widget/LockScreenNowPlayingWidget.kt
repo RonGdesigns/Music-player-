@@ -2,6 +2,8 @@ package com.irondigital.spindle.widget
 
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -58,9 +60,22 @@ class LockScreenNowPlayingWidget : GlanceAppWidget() {
     )
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val snapshot = context.spindle.snapshotStore.snapshot.first()
+        val store = context.spindle.snapshotStore
+        val initial = store.snapshot.first()
 
         provideContent {
+            // Collected inside provideContent, and that placement is the whole
+            // point. Glance runs provideGlance once per session; every later
+            // updateAll only recomposes the content that is already here. A
+            // snapshot read outside this lambda is captured as a plain value and
+            // frozen at the moment the widget was first laid out — which is why
+            // the widget kept showing whatever was playing when you added it, no
+            // matter what the player did afterwards.
+            //
+            // Collecting the flow here makes the composition observe it, so the
+            // widget follows the player on its own and updateAll is only a nudge.
+            val snapshot by store.snapshot.collectAsState(initial)
+
             Box(
                 modifier = GlanceModifier
                     .fillMaxSize()

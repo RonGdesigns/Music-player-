@@ -3,6 +3,12 @@ package com.irondigital.spindle.widget
 import android.content.Context
 import android.graphics.Bitmap
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,12 +78,31 @@ class NowPlayingWidget : GlanceAppWidget() {
     )
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        // Read outside provideContent: this is disk and bitmap work, and doing
-        // it in composition would block the launcher's render.
-        val snapshot = context.spindle.snapshotStore.snapshot.first()
-        val art = WidgetArt.load(context, snapshot.artUri)
+        val store = context.spindle.snapshotStore
+        // Seeded so the very first frame is drawn with real content rather
+        // than the empty plate.
+        val initial = store.snapshot.first()
 
         provideContent {
+            // Collected inside provideContent, and that placement is the whole
+            // point. Glance runs provideGlance once per session; every later
+            // updateAll only recomposes the content that is already here. A
+            // snapshot read outside this lambda is captured as a plain value and
+            // frozen at the moment the widget was first laid out — which is why
+            // the widget kept showing whatever was playing when you added it, no
+            // matter what the player did afterwards.
+            //
+            // Collecting the flow here makes the composition observe it, so the
+            // widget follows the player on its own and updateAll is only a nudge.
+            val snapshot by store.snapshot.collectAsState(initial)
+
+            // Decoding is kept off the composition and re-run only when the
+            // artwork actually changes, not on every position update.
+            var art by remember { mutableStateOf<Bitmap?>(null) }
+            LaunchedEffect(snapshot.artUri) {
+                art = WidgetArt.load(context, snapshot.artUri)
+            }
+
             val size = LocalSize.current
             Box(
                 modifier = GlanceModifier

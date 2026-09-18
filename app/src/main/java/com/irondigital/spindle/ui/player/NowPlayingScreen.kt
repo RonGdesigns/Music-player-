@@ -62,6 +62,7 @@ import com.irondigital.spindle.ui.components.TickScale
 import com.irondigital.spindle.ui.components.formatDuration
 import com.irondigital.spindle.ui.library.EditTrackHost
 import com.irondigital.spindle.ui.library.LibraryViewModel
+import com.irondigital.spindle.ui.components.consumeTouches
 import com.irondigital.spindle.ui.theme.Corner
 import com.irondigital.spindle.ui.theme.Ground
 import com.irondigital.spindle.ui.theme.Ink
@@ -117,7 +118,16 @@ fun NowPlayingScreen(
         audioSessionId = playback.audioSessionId,
     )
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            // The player is drawn over the library rather than replacing it, so
+            // it has to claim its own touches and paint its own ground —
+            // otherwise a tap on empty space reaches the list underneath and
+            // changes the song.
+            .background(Ground.Deep)
+            .consumeTouches()
+    ) {
         ArtworkVisualizer(
             colors = colors,
             mode = settings.visualizerMode,

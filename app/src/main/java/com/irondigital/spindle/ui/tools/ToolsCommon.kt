@@ -22,6 +22,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +57,10 @@ fun ToolHeader(
     explanation: String,
     onBack: () -> Unit,
 ) {
+    // Worth reading once, worth four lines of list back afterwards. It starts
+    // open, because these tools change things and nobody should meet one blind.
+    var showExplanation by rememberSaveable { mutableStateOf(true) }
+
     Column(modifier = Modifier.fillMaxWidth().statusBarsPadding()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = Space.s, end = Space.gutter),
@@ -64,15 +71,32 @@ fun ToolHeader(
                 contentDescription = "Back",
                 onClick = onBack,
             )
-            Text(title, style = SpindleType.ScreenTitle, color = Ink.Primary)
+            Text(
+                text = title,
+                style = SpindleType.ScreenTitle,
+                color = Ink.Primary,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = if (showExplanation) "Hide" else "What is this?",
+                style = SpindleType.Secondary,
+                color = Lamp.Bright,
+                modifier = Modifier
+                    .clickable { showExplanation = !showExplanation }
+                    .padding(Space.s),
+            )
         }
-        Text(
-            text = explanation,
-            style = SpindleType.Body,
-            color = Steel.Bright,
-            modifier = Modifier.padding(horizontal = Space.gutter),
-        )
-        Spacer(Modifier.height(Space.m))
+        if (showExplanation) {
+            Text(
+                text = explanation,
+                style = SpindleType.Body,
+                color = Steel.Bright,
+                modifier = Modifier.padding(horizontal = Space.gutter),
+            )
+            Spacer(Modifier.height(Space.m))
+        } else {
+            Spacer(Modifier.height(Space.xs))
+        }
         TickScale(height = 10.dp, spacing = 6.dp, modifier = Modifier.padding(horizontal = Space.gutter))
         Spacer(Modifier.height(Space.s))
     }
@@ -119,7 +143,7 @@ fun SelectableRow(
         modifier = modifier
             .fillMaxWidth()
             .clickable(role = Role.Checkbox, onClick = onToggle)
-            .padding(horizontal = Space.gutter, vertical = Space.m),
+            .padding(horizontal = Space.gutter, vertical = Space.s),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         SelectionLamp(selected)

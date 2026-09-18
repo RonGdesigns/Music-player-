@@ -18,13 +18,16 @@ import com.irondigital.spindle.data.model.Track
 @OptIn(UnstableApi::class)
 class AutoMediaLibrary(private val app: SpindleApp) {
 
-    fun root(): MediaItem = browsable(ROOT_ID, "Spindle")
+    fun root(): MediaItem =
+        browsable(ROOT_ID, "Spindle", mediaType = MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
 
     fun item(mediaId: String): MediaItem? = when {
         mediaId == ROOT_ID -> root()
         mediaId == SONGS_ID -> browsable(SONGS_ID, "Songs")
-        mediaId == ALBUMS_ID -> browsable(ALBUMS_ID, "Albums")
-        mediaId == ARTISTS_ID -> browsable(ARTISTS_ID, "Artists")
+        mediaId == ALBUMS_ID ->
+            browsable(ALBUMS_ID, "Albums", mediaType = MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS)
+        mediaId == ARTISTS_ID ->
+            browsable(ARTISTS_ID, "Artists", mediaType = MediaMetadata.MEDIA_TYPE_FOLDER_ARTISTS)
         mediaId == FOLDERS_ID -> browsable(FOLDERS_ID, "Folders")
         mediaId.startsWith(ALBUM_PREFIX) -> albumItem(mediaId)
         mediaId.startsWith(ARTIST_PREFIX) -> artistItem(mediaId)
@@ -34,10 +37,10 @@ class AutoMediaLibrary(private val app: SpindleApp) {
 
     fun children(parentId: String): List<MediaItem> = when {
         parentId == ROOT_ID -> listOf(
-            browsable(SONGS_ID, "Songs"),
-            browsable(ALBUMS_ID, "Albums"),
-            browsable(ARTISTS_ID, "Artists"),
-            browsable(FOLDERS_ID, "Folders"),
+            browsable(SONGS_ID, "Songs", mediaType = MediaMetadata.MEDIA_TYPE_FOLDER_MIXED),
+            browsable(ALBUMS_ID, "Albums", mediaType = MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS),
+            browsable(ARTISTS_ID, "Artists", mediaType = MediaMetadata.MEDIA_TYPE_FOLDER_ARTISTS),
+            browsable(FOLDERS_ID, "Folders", mediaType = MediaMetadata.MEDIA_TYPE_FOLDER_MIXED),
         )
 
         parentId == SONGS_ID -> app.library.tracks.value
@@ -165,6 +168,7 @@ class AutoMediaLibrary(private val app: SpindleApp) {
         id: String,
         title: String,
         subtitle: String? = null,
+        mediaType: Int = MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
     ): MediaItem = MediaItem.Builder()
         .setMediaId(id)
         .setMediaMetadata(
@@ -173,6 +177,10 @@ class AutoMediaLibrary(private val app: SpindleApp) {
                 .setSubtitle(subtitle)
                 .setIsBrowsable(true)
                 .setIsPlayable(false)
+                // Auto builds its own UI from these nodes and uses the type to
+                // decide how to render each one. Without it every row is a
+                // generic entry with no artwork treatment.
+                .setMediaType(mediaType)
                 .build()
         )
         .build()
@@ -189,6 +197,7 @@ class AutoMediaLibrary(private val app: SpindleApp) {
                 .setDurationMs(durationMs.takeIf { it > 0 })
                 .setIsBrowsable(false)
                 .setIsPlayable(true)
+                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
                 .build()
         )
         .build()
