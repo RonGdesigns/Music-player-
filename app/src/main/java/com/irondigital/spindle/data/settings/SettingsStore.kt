@@ -60,16 +60,20 @@ data class Settings(
     val countPlaysEnabled: Boolean = true,
     /** Share of a track that must be heard before it counts as a play. */
     val playThresholdPercent: Int = 50,
-    val crossfadeMs: Int = 0,
     val skipSilence: Boolean = false,
+    val equalizerEnabled: Boolean = false,
+    /** A device preset index, or -1 for the user's own curve in [equalizerBands]. */
+    val equalizerPreset: Int = -1,
+    /** Per-band gain in millibels, in the device's own band order. */
+    val equalizerBands: List<Int> = emptyList(),
+    val bassBoostStrength: Int = 0,
+    val virtualizerStrength: Int = 0,
     val normalizationMode: NormalizationMode = NormalizationMode.OFF,
     /** Applied on top of the file's own ReplayGain value. */
     val normalizationPreampDb: Int = 0,
-    val resumeOnHeadsetConnect: Boolean = false,
     val keepScreenOnWithLyrics: Boolean = true,
     val librarySort: LibrarySort = LibrarySort.TITLE,
     val mostPlayedSize: Int = 100,
-    val showSongInfoInPlayer: Boolean = true,
 )
 
 class SettingsStore(private val context: Context) {
@@ -83,18 +87,20 @@ class SettingsStore(private val context: Context) {
                 ?: VisualizerMode.ARTWORK,
             countPlaysEnabled = p[Keys.COUNT_PLAYS] ?: true,
             playThresholdPercent = p[Keys.PLAY_THRESHOLD] ?: 50,
-            crossfadeMs = p[Keys.CROSSFADE] ?: 0,
             skipSilence = p[Keys.SKIP_SILENCE] ?: false,
+            equalizerEnabled = p[Keys.EQ_ENABLED] ?: false,
+            equalizerPreset = p[Keys.EQ_PRESET] ?: -1,
+            equalizerBands = p[Keys.EQ_BANDS]?.let(::decodeBands) ?: emptyList(),
+            bassBoostStrength = p[Keys.BASS_BOOST] ?: 0,
+            virtualizerStrength = p[Keys.VIRTUALIZER] ?: 0,
             normalizationMode = p[Keys.NORMALIZATION]
                 ?.let { runCatching { NormalizationMode.valueOf(it) }.getOrNull() }
                 ?: NormalizationMode.OFF,
             normalizationPreampDb = p[Keys.NORMALIZATION_PREAMP] ?: 0,
-            resumeOnHeadsetConnect = p[Keys.RESUME_ON_HEADSET] ?: false,
             keepScreenOnWithLyrics = p[Keys.KEEP_SCREEN_ON] ?: true,
             librarySort = p[Keys.LIBRARY_SORT]?.let { runCatching { LibrarySort.valueOf(it) }.getOrNull() }
                 ?: LibrarySort.TITLE,
             mostPlayedSize = p[Keys.MOST_PLAYED_SIZE] ?: 100,
-            showSongInfoInPlayer = p[Keys.SHOW_SONG_INFO] ?: true,
         )
     }
 
@@ -104,15 +110,17 @@ class SettingsStore(private val context: Context) {
     suspend fun setVisualizerMode(mode: VisualizerMode) = put(Keys.VISUALIZER, mode.name)
     suspend fun setCountPlaysEnabled(enabled: Boolean) = put(Keys.COUNT_PLAYS, enabled)
     suspend fun setPlayThresholdPercent(percent: Int) = put(Keys.PLAY_THRESHOLD, percent.coerceIn(10, 95))
-    suspend fun setCrossfadeMs(ms: Int) = put(Keys.CROSSFADE, ms.coerceIn(0, 12_000))
     suspend fun setSkipSilence(enabled: Boolean) = put(Keys.SKIP_SILENCE, enabled)
+    suspend fun setEqualizerEnabled(enabled: Boolean) = put(Keys.EQ_ENABLED, enabled)
+    suspend fun setEqualizerPreset(index: Int) = put(Keys.EQ_PRESET, index)
+    suspend fun setEqualizerBands(levelsMb: List<Int>) = put(Keys.EQ_BANDS, encodeBands(levelsMb))
+    suspend fun setBassBoost(strength: Int) = put(Keys.BASS_BOOST, strength.coerceIn(0, 1000))
+    suspend fun setVirtualizer(strength: Int) = put(Keys.VIRTUALIZER, strength.coerceIn(0, 1000))
     suspend fun setNormalizationMode(mode: NormalizationMode) = put(Keys.NORMALIZATION, mode.name)
     suspend fun setNormalizationPreamp(db: Int) = put(Keys.NORMALIZATION_PREAMP, db.coerceIn(-15, 15))
-    suspend fun setResumeOnHeadsetConnect(enabled: Boolean) = put(Keys.RESUME_ON_HEADSET, enabled)
     suspend fun setKeepScreenOnWithLyrics(enabled: Boolean) = put(Keys.KEEP_SCREEN_ON, enabled)
     suspend fun setLibrarySort(sort: LibrarySort) = put(Keys.LIBRARY_SORT, sort.name)
     suspend fun setMostPlayedSize(size: Int) = put(Keys.MOST_PLAYED_SIZE, size.coerceIn(10, 500))
-    suspend fun setShowSongInfoInPlayer(enabled: Boolean) = put(Keys.SHOW_SONG_INFO, enabled)
 
     private suspend fun <T> put(key: Preferences.Key<T>, value: T) {
         context.settingsDataStore.edit { it[key] = value }
@@ -125,14 +133,26 @@ class SettingsStore(private val context: Context) {
         val VISUALIZER = stringPreferencesKey("visualizer_mode")
         val COUNT_PLAYS = booleanPreferencesKey("count_plays")
         val PLAY_THRESHOLD = intPreferencesKey("play_threshold_percent")
-        val CROSSFADE = intPreferencesKey("crossfade_ms")
         val SKIP_SILENCE = booleanPreferencesKey("skip_silence")
+        val EQ_ENABLED = booleanPreferencesKey("equalizer_enabled")
+        val EQ_PRESET = intPreferencesKey("equalizer_preset")
+        val EQ_BANDS = stringPreferencesKey("equalizer_bands")
+        val BASS_BOOST = intPreferencesKey("bass_boost")
+        val VIRTUALIZER = intPreferencesKey("virtualizer")
         val NORMALIZATION = stringPreferencesKey("normalization_mode")
         val NORMALIZATION_PREAMP = intPreferencesKey("normalization_preamp_db")
-        val RESUME_ON_HEADSET = booleanPreferencesKey("resume_on_headset")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on_lyrics")
         val LIBRARY_SORT = stringPreferencesKey("library_sort")
         val MOST_PLAYED_SIZE = intPreferencesKey("most_played_size")
-        val SHOW_SONG_INFO = booleanPreferencesKey("show_song_info")
     }
 }
+
+/**
+ * Band gains as a comma-separated string. The band count varies by device, so a
+ * fixed set of keys would not fit — and a malformed value should cost the user a
+ * flat curve, not a crash on launch.
+ */
+private fun encodeBands(levelsMb: List<Int>): String = levelsMb.joinToString(",")
+
+private fun decodeBands(raw: String): List<Int> =
+    raw.split(',').mapNotNull { it.trim().toIntOrNull() }

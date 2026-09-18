@@ -20,6 +20,10 @@ interface StatsDao {
     @Query("SELECT * FROM play_stats")
     fun observeAll(): Flow<List<PlayStat>>
 
+    /** A one-shot read for export, where a Flow would just have to be cancelled. */
+    @Query("SELECT * FROM play_stats")
+    suspend fun getAll(): List<PlayStat>
+
     @Upsert
     suspend fun upsert(stat: PlayStat)
 
@@ -116,6 +120,9 @@ interface FavoritesDao {
     @Query("SELECT mediaId FROM favorites ORDER BY addedAt DESC")
     fun observeIds(): Flow<List<String>>
 
+    @Query("SELECT * FROM favorites")
+    suspend fun getAll(): List<Favorite>
+
     @Query("SELECT EXISTS(SELECT 1 FROM favorites WHERE mediaId = :mediaId)")
     fun observeIsFavorite(mediaId: String): Flow<Boolean>
 
@@ -131,6 +138,12 @@ interface PlaylistDao {
 
     @Query("SELECT * FROM playlists ORDER BY updatedAt DESC")
     fun observePlaylists(): Flow<List<Playlist>>
+
+    @Query("SELECT * FROM playlists ORDER BY createdAt ASC")
+    suspend fun getAllPlaylists(): List<Playlist>
+
+    @Query("SELECT mediaId FROM playlist_items WHERE playlistId = :id ORDER BY position ASC")
+    suspend fun getItems(id: Long): List<String>
 
     @Query("SELECT * FROM playlists WHERE id = :id")
     fun observePlaylist(id: Long): Flow<Playlist?>
@@ -214,6 +227,9 @@ interface TrackEditDao {
 
     @Query("SELECT * FROM track_edits")
     fun observeAll(): Flow<List<TrackEdit>>
+
+    @Query("SELECT * FROM track_edits")
+    suspend fun getAll(): List<TrackEdit>
 
     @Query("SELECT * FROM track_edits WHERE mediaId = :mediaId")
     suspend fun get(mediaId: String): TrackEdit?

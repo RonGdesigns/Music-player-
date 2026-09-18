@@ -13,6 +13,7 @@ import androidx.media3.common.Player
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -57,6 +58,7 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private lateinit var tracker: PlayCountTracker
     private lateinit var loudness: LoudnessController
+    private lateinit var effects: AudioEffectsController
 
     private var settings: Settings = Settings()
     private var sleepTimerJob: Job? = null
@@ -88,7 +90,20 @@ class PlaybackService : MediaSessionService() {
         loudness = LoudnessController(serviceScope, player, app.gains) { settings }
         loudness.attach()
 
+        effects = AudioEffectsController(player, { settings }, app.equalizerCapabilities)
+
         player.addListener(PlayerWatcher())
+        // The session id is what every audio effect attaches to, and it is
+        // reassigned whenever the audio sink is rebuilt — a change the ordinary
+        // Player.Listener never reports.
+        player.addAnalyticsListener(object : AnalyticsListener {
+            override fun onAudioSessionIdChanged(
+                eventTime: AnalyticsListener.EventTime,
+                audioSessionId: Int,
+            ) {
+                effects.apply()
+            }
+        })
 
         val sessionActivity = PendingIntent.getActivity(
             this,
@@ -113,6 +128,10 @@ class PlaybackService : MediaSessionService() {
                 ) {
                     loudness.onSettingsChanged()
                 }
+
+                // Cheap when nothing it cares about moved, so it does not need
+                // its own set of field comparisons to guard it.
+                effects.apply()
             }
             .launchIn(serviceScope)
 
@@ -135,6 +154,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         sleepTimerJob?.cancel()
+        effects.release()
         loudness.detach()
         tracker.detach()
         mediaSession?.run {
@@ -262,6 +282,12 @@ class PlaybackService : MediaSessionService() {
                 )
             ) {
                 publishSnapshot()
+            }
+
+            // A device that refuses to build an equalizer before the audio
+            // track exists will succeed here, on the first transition to ready.
+            if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED)) {
+                effects.apply()
             }
         }
     }

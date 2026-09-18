@@ -56,6 +56,7 @@ import com.irondigital.spindle.ui.theme.SignalRed
 import com.irondigital.spindle.ui.theme.Space
 import com.irondigital.spindle.ui.theme.SpindleType
 import com.irondigital.spindle.ui.theme.Steel
+import com.irondigital.spindle.ui.tools.BackupControls
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -93,6 +94,10 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onRescan: () -> Unit,
     onOpenStats: () -> Unit,
+    onOpenEqualizer: () -> Unit,
+    onOpenAutoTag: () -> Unit,
+    onOpenDuplicates: () -> Unit,
+    onOpenBatchEdit: () -> Unit,
 ) {
     val viewModel: SettingsViewModel = viewModel()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
@@ -287,6 +292,21 @@ fun SettingsScreen(
             }
 
             item {
+                SettingsSection("Sound") {
+                    Text(
+                        text = "Shapes the sound on its way out, using the effects " +
+                            "this device provides. Every phone offers a different " +
+                            "set of bands, so the screen is built from what yours " +
+                            "actually has.",
+                        style = SpindleType.Secondary,
+                        color = Steel.Dim,
+                    )
+                    Spacer(Modifier.height(Space.s))
+                    LinkRow("Open the equalizer", onOpenEqualizer)
+                }
+            }
+
+            item {
                 SettingsSection("Volume") {
                     Text(
                         text = "Evens out the difference between a quiet album and a " +
@@ -398,6 +418,46 @@ fun SettingsScreen(
             }
 
             item {
+                SettingsSection("Library tools") {
+                    Text(
+                        text = "Three jobs a library assembled from downloads always " +
+                            "needs and nobody ever does by hand.",
+                        style = SpindleType.Secondary,
+                        color = Steel.Dim,
+                    )
+                    Spacer(Modifier.height(Space.s))
+
+                    ToolRow(
+                        title = "Fix names",
+                        description = "Reads the artist and title out of the filename " +
+                            "for tracks that arrived with no tags. Shows every " +
+                            "proposal before changing anything.",
+                        onClick = onOpenAutoTag,
+                    )
+                    ToolRow(
+                        title = "Edit several at once",
+                        description = "Sets one artist, album or year across a whole " +
+                            "selection — which is the only practical way to fix a " +
+                            "compilation.",
+                        onClick = onOpenBatchEdit,
+                    )
+                    ToolRow(
+                        title = "Find duplicates",
+                        description = "The same recording sitting in the library " +
+                            "twice. A remix or a live cut is never grouped with the " +
+                            "original.",
+                        onClick = onOpenDuplicates,
+                    )
+                }
+            }
+
+            item {
+                SettingsSection("Backup") {
+                    BackupControls()
+                }
+            }
+
+            item {
                 SettingsSection("About") {
                     Text(
                         text = "Spindle plays what is already on your phone. There is " +
@@ -448,6 +508,37 @@ fun SettingsScreen(
                 }
             },
         )
+    }
+}
+
+/** A plain way through to another screen. Amber, because it is the live thing. */
+@Composable
+private fun LinkRow(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        style = SpindleType.RowTitle,
+        color = Lamp.Bright,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = Space.s),
+    )
+}
+
+/**
+ * A tool, with what it does said before it is opened. Each of these changes the
+ * library, and one of them deletes files, so none of them is a bare label.
+ */
+@Composable
+private fun ToolRow(title: String, description: String, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = Space.s),
+    ) {
+        Text(title, style = SpindleType.RowTitle, color = Lamp.Bright)
+        Text(description, style = SpindleType.Secondary, color = Steel.Dim)
     }
 }
 

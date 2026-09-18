@@ -35,7 +35,11 @@ import com.irondigital.spindle.ui.library.LibraryScreen
 import com.irondigital.spindle.ui.library.TrackListScreen
 import com.irondigital.spindle.ui.player.NowPlayingScreen
 import com.irondigital.spindle.ui.player.rememberArtworkColors
+import com.irondigital.spindle.ui.audio.EqualizerScreen
 import com.irondigital.spindle.ui.settings.SettingsScreen
+import com.irondigital.spindle.ui.tools.AutoTagScreen
+import com.irondigital.spindle.ui.tools.BatchEditScreen
+import com.irondigital.spindle.ui.tools.DuplicatesScreen
 import com.irondigital.spindle.ui.stats.StatsScreen
 import com.irondigital.spindle.ui.theme.Ground
 import com.irondigital.spindle.ui.theme.Motion
@@ -43,13 +47,17 @@ import com.irondigital.spindle.ui.theme.SpindleTheme
 
 /**
  * Where the user is. A plain stack rather than a routing library: this app has
- * seven destinations and no deep links worth encoding as strings, so a typed
- * stack is both smaller and harder to get wrong.
+ * a handful of destinations and no deep links worth encoding as strings, so a
+ * typed stack is both smaller and harder to get wrong.
  */
 sealed interface Destination {
     data object Library : Destination
     data object Settings : Destination
     data object Stats : Destination
+    data object Equalizer : Destination
+    data object AutoTag : Destination
+    data object Duplicates : Destination
+    data object BatchEdit : Destination
     data class Album(val albumId: Long) : Destination
     data class Artist(val name: String) : Destination
     data class Folder(val path: String) : Destination
@@ -117,9 +125,18 @@ private fun MainStack(
                     onBack = ::pop,
                     onRescan = libraryViewModel::refresh,
                     onOpenStats = { push(Destination.Stats) },
+                    onOpenEqualizer = { push(Destination.Equalizer) },
+                    onOpenAutoTag = { push(Destination.AutoTag) },
+                    onOpenDuplicates = { push(Destination.Duplicates) },
+                    onOpenBatchEdit = { push(Destination.BatchEdit) },
                 )
 
                 Destination.Stats -> StatsScreen(onBack = ::pop)
+
+                Destination.Equalizer -> EqualizerScreen(onBack = ::pop)
+                Destination.AutoTag -> AutoTagScreen(onBack = ::pop)
+                Destination.Duplicates -> DuplicatesScreen(onBack = ::pop)
+                Destination.BatchEdit -> BatchEditScreen(onBack = ::pop)
 
                 is Destination.Album -> {
                     // Filtering the whole library on every recomposition would

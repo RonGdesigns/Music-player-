@@ -3,6 +3,7 @@ package com.irondigital.spindle
 import android.app.Application
 import android.content.Context
 import android.net.Uri
+import com.irondigital.spindle.data.backup.BackupRepository
 import com.irondigital.spindle.data.db.SpindleDatabase
 import com.irondigital.spindle.data.lyrics.LyricsRepository
 import com.irondigital.spindle.data.media.AudioImporter
@@ -12,6 +13,7 @@ import com.irondigital.spindle.data.repo.LibraryRepository
 import com.irondigital.spindle.data.repo.SmartPlaylistProvider
 import com.irondigital.spindle.data.repo.StatsRepository
 import com.irondigital.spindle.data.settings.SettingsStore
+import com.irondigital.spindle.playback.EqualizerCapabilities
 import com.irondigital.spindle.playback.PlaybackSnapshotStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,6 +49,16 @@ class SpindleApp : Application() {
         return pending
     }
 
+    /**
+     * What the device's own equalizer turned out to offer, filled in by the
+     * playback service once it has an audio session.
+     *
+     * Null means nobody has asked yet — which is not the same as "this device
+     * has no equalizer", and the screen says so rather than showing an empty
+     * set of bands as though the answer were known.
+     */
+    val equalizerCapabilities = MutableStateFlow<EqualizerCapabilities?>(null)
+
     val database: SpindleDatabase by lazy { SpindleDatabase.build(this) }
     val settingsStore: SettingsStore by lazy { SettingsStore(this) }
     val snapshotStore: PlaybackSnapshotStore by lazy { PlaybackSnapshotStore(this) }
@@ -63,6 +75,15 @@ class SpindleApp : Application() {
     val importer: AudioImporter by lazy { AudioImporter(this) }
     val smartPlaylists: SmartPlaylistProvider by lazy {
         SmartPlaylistProvider(library, stats, collections)
+    }
+    val backup: BackupRepository by lazy {
+        BackupRepository(
+            library = library,
+            statsDao = database.statsDao(),
+            favoritesDao = database.favoritesDao(),
+            playlistDao = database.playlistDao(),
+            trackEditDao = database.trackEditDao(),
+        )
     }
 
     override fun onTerminate() {
