@@ -254,12 +254,16 @@ private fun HomeTab(
     onOpenNowPlaying: () -> Unit,
 ) {
     val settings by libraryViewModel.settings.collectAsStateWithLifecycle()
-    val mostPlayed by libraryViewModel
-        .smartPlaylist(SmartPlaylist.MOST_PLAYED, settings.mostPlayedSize)
-        .collectAsStateWithLifecycle(initialValue = emptyList())
-    val recentlyAdded by libraryViewModel
-        .smartPlaylist(SmartPlaylist.RECENTLY_ADDED, 20)
-        .collectAsStateWithLifecycle(initialValue = emptyList())
+    // Each smartPlaylist() call builds a new combined flow, so they are
+    // remembered rather than rebuilt and re-collected on every recomposition.
+    val mostPlayedFlow = remember(settings.mostPlayedSize) {
+        libraryViewModel.smartPlaylist(SmartPlaylist.MOST_PLAYED, settings.mostPlayedSize)
+    }
+    val recentlyAddedFlow = remember {
+        libraryViewModel.smartPlaylist(SmartPlaylist.RECENTLY_ADDED, 20)
+    }
+    val mostPlayed by mostPlayedFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val recentlyAdded by recentlyAddedFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     val secondaryShelves = listOf(
         SmartPlaylist.MOST_PLAYED_MONTH,

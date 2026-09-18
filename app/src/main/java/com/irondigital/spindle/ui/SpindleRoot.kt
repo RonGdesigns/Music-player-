@@ -116,12 +116,20 @@ private fun MainStack(
                 )
 
                 is Destination.Album -> {
-                    val album = libraryViewModel.albumFor(destination.albumId)
+                    // Filtering the whole library on every recomposition would
+                    // be wasteful; these only change when the library rescans.
+                    val libraryTracks by libraryViewModel.tracks.collectAsStateWithLifecycle()
+                    val album = remember(destination.albumId, libraryTracks) {
+                        libraryViewModel.albumFor(destination.albumId)
+                    }
+                    val albumTracks = remember(destination.albumId, libraryTracks) {
+                        libraryViewModel.tracksInAlbum(destination.albumId)
+                    }
                     TrackListScreen(
                         title = album?.name ?: "Album",
                         subtitle = album?.artist,
                         artUri = album?.artUri?.toString(),
-                        tracks = libraryViewModel.tracksInAlbum(destination.albumId),
+                        tracks = albumTracks,
                         playerViewModel = playerViewModel,
                         libraryViewModel = libraryViewModel,
                         onBack = ::pop,
@@ -129,25 +137,37 @@ private fun MainStack(
                     )
                 }
 
-                is Destination.Artist -> TrackListScreen(
-                    title = destination.name,
-                    subtitle = null,
-                    artUri = null,
-                    tracks = libraryViewModel.tracksByArtist(destination.name),
-                    playerViewModel = playerViewModel,
-                    libraryViewModel = libraryViewModel,
-                    onBack = ::pop,
-                )
+                is Destination.Artist -> {
+                    val libraryTracks by libraryViewModel.tracks.collectAsStateWithLifecycle()
+                    val artistTracks = remember(destination.name, libraryTracks) {
+                        libraryViewModel.tracksByArtist(destination.name)
+                    }
+                    TrackListScreen(
+                        title = destination.name,
+                        subtitle = null,
+                        artUri = null,
+                        tracks = artistTracks,
+                        playerViewModel = playerViewModel,
+                        libraryViewModel = libraryViewModel,
+                        onBack = ::pop,
+                    )
+                }
 
-                is Destination.Folder -> TrackListScreen(
-                    title = destination.path.substringAfterLast('/'),
-                    subtitle = destination.path,
-                    artUri = null,
-                    tracks = libraryViewModel.tracksInFolder(destination.path),
-                    playerViewModel = playerViewModel,
-                    libraryViewModel = libraryViewModel,
-                    onBack = ::pop,
-                )
+                is Destination.Folder -> {
+                    val libraryTracks by libraryViewModel.tracks.collectAsStateWithLifecycle()
+                    val folderTracks = remember(destination.path, libraryTracks) {
+                        libraryViewModel.tracksInFolder(destination.path)
+                    }
+                    TrackListScreen(
+                        title = destination.path.substringAfterLast('/'),
+                        subtitle = destination.path,
+                        artUri = null,
+                        tracks = folderTracks,
+                        playerViewModel = playerViewModel,
+                        libraryViewModel = libraryViewModel,
+                        onBack = ::pop,
+                    )
+                }
 
                 is Destination.Smart -> {
                     val settings by libraryViewModel.settings.collectAsStateWithLifecycle()
@@ -156,9 +176,10 @@ private fun MainStack(
                     } else {
                         200
                     }
-                    val tracks by libraryViewModel
-                        .smartPlaylist(destination.playlist, limit)
-                        .collectAsStateWithLifecycle(initialValue = emptyList())
+                    val flow = remember(destination.playlist, limit) {
+                        libraryViewModel.smartPlaylist(destination.playlist, limit)
+                    }
+                    val tracks by flow.collectAsStateWithLifecycle(initialValue = emptyList())
 
                     TrackListScreen(
                         title = destination.playlist.title,
@@ -174,9 +195,10 @@ private fun MainStack(
                 }
 
                 is Destination.UserPlaylist -> {
-                    val tracks by libraryViewModel
-                        .playlistTracks(destination.playlistId)
-                        .collectAsStateWithLifecycle()
+                    val flow = remember(destination.playlistId) {
+                        libraryViewModel.playlistTracks(destination.playlistId)
+                    }
+                    val tracks by flow.collectAsStateWithLifecycle(initialValue = emptyList())
 
                     TrackListScreen(
                         title = destination.name,

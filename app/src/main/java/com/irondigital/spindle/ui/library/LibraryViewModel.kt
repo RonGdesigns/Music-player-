@@ -12,6 +12,7 @@ import com.irondigital.spindle.data.repo.LibraryRepository
 import com.irondigital.spindle.data.repo.SmartPlaylist
 import com.irondigital.spindle.data.settings.LibrarySort
 import com.irondigital.spindle.spindle
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -86,10 +87,15 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     fun smartPlaylist(playlist: SmartPlaylist, limit: Int) =
         app.smartPlaylists.tracksIn(playlist, limit)
 
-    fun playlistTracks(playlistId: Long): StateFlow<List<Track>> =
+    /**
+     * Cold on purpose. Calling stateIn here would launch a sharing coroutine in
+     * viewModelScope on every invocation, and these are called from composition
+     * — so the caller remembers the flow and collects it instead.
+     */
+    fun playlistTracks(playlistId: Long): Flow<List<Track>> =
         combine(app.collections.playlistItems(playlistId), app.library.tracks) { ids, _ ->
             app.library.tracksFor(ids)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        }
 
     fun createPlaylist(name: String, seed: List<String> = emptyList()) {
         viewModelScope.launch { app.collections.createPlaylist(name, seed) }
