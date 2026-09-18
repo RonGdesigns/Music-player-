@@ -78,7 +78,7 @@ class PlaybackService : MediaSessionService() {
                     .build(),
                 /* handleAudioFocus = */ true,
             )
-            // Pausing when the headphones come out is not optional behaviour.
+            // Pausing when the headphones come out is not optional behavior.
             .setHandleAudioBecomingNoisy(true)
             .build()
 
@@ -199,7 +199,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun favoriteButton(): CommandButton = CommandButton.Builder()
-        .setDisplayName("Favourite")
+        .setDisplayName("Favorite")
         .setIconResId(R.drawable.ic_notification_favorite)
         .setSessionCommand(SessionCommand(COMMAND_TOGGLE_FAVORITE, Bundle.EMPTY))
         .build()

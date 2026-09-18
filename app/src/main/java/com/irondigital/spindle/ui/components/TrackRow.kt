@@ -164,7 +164,7 @@ fun TrackRow(
                 if (isFavorite) {
                     Icon(
                         imageVector = Icons.Filled.Favorite,
-                        contentDescription = "Favourite",
+                        contentDescription = "Favorite",
                         tint = Lamp.Bright,
                         modifier = Modifier.size(11.dp),
                     )

@@ -13,7 +13,7 @@ import androidx.compose.animation.core.tween
  * on, because that is how a filament behaves and it is what makes the whole
  * interface feel like one object rather than a set of screens.
  *
- * It is one idea applied consistently. Six different hover behaviours would be
+ * It is one idea applied consistently. Six different hover behaviors would be
  * a settings file, not a signature.
  */
 object Motion {

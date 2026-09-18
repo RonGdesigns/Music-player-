@@ -7,7 +7,7 @@ import com.irondigital.spindle.data.db.PlaylistDao
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-/** Favourites and hand-built playlists. */
+/** Favorites and hand-built playlists. */
 class CollectionsRepository(
     private val favoritesDao: FavoritesDao,
     private val playlistDao: PlaylistDao,

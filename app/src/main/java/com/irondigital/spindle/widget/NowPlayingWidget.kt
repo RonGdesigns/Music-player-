@@ -373,7 +373,7 @@ class NowPlayingWidget : GlanceAppWidget() {
                 provider = ImageProvider(
                     if (isFavorite) R.drawable.ic_favorite_filled else R.drawable.ic_favorite_outline
                 ),
-                contentDescription = if (isFavorite) "Remove from favourites" else "Add to favourites",
+                contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
                 modifier = GlanceModifier.size(19.dp),
                 colorFilter = ColorFilter.tint(
                     ColorProvider(if (isFavorite) Lamp.Bright else Steel.Dim)
@@ -382,7 +382,7 @@ class NowPlayingWidget : GlanceAppWidget() {
         }
     }
 
-    /** The faceplate engraving: a hairline the same colour as a milled groove. */
+    /** The faceplate engraving: a hairline the same color as a milled groove. */
     @Composable
     private fun EngravedRule() {
         Box(

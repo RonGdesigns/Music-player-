@@ -19,7 +19,7 @@ import kotlin.math.log10
  * The platform Visualizer is gated behind RECORD_AUDIO because it can, in
  * principle, read the output mix. That is a real microphone-grade permission
  * and a music player has no business demanding it at launch, so this path is
- * strictly opt-in: the default visualiser is artwork-driven and asks for
+ * strictly opt-in: the default visualizer is artwork-driven and asks for
  * nothing. If the permission is absent or the effect cannot be created — some
  * devices refuse it outright — this returns silence and the caller falls back.
  */
@@ -92,7 +92,7 @@ private fun hasRecordPermission(context: Context): Boolean =
  *
  * Linear bands would put almost everything in the first two buckets, because
  * musical energy is concentrated at the bottom — which is why a naive
- * visualiser looks like one twitching bar and twenty dead ones. The result is
+ * visualizer looks like one twitching bar and twenty dead ones. The result is
  * smoothed against the previous frame so bars fall away rather than snapping,
  * which is both easier to look at and cheaper to redraw.
  */
@@ -116,18 +116,18 @@ private fun ByteArray.toBands(previous: FloatArray): FloatArray {
         }
         bin = bandEnd
 
-        // Decibels, then normalised. Amplitude alone would leave everything
+        // Decibels, then normalized. Amplitude alone would leave everything
         // hugging the floor apart from the occasional transient.
         val db = if (peak > 0f) 20f * log10(peak) else 0f
-        val normalised = (db / 48f).coerceIn(0f, 1f)
+        val normalized = (db / 48f).coerceIn(0f, 1f)
 
         val last = previous.getOrElse(band) { 0f }
-        out[band] = if (normalised > last) {
+        out[band] = if (normalized > last) {
             // Rise almost immediately: a transient you see late is a transient
             // that looks unrelated to the music.
-            normalised
+            normalized
         } else {
-            last * 0.82f + normalised * 0.18f
+            last * 0.82f + normalized * 0.18f
         }
     }
     return out

@@ -46,7 +46,7 @@ data class PlaybackSnapshot(
     val isFavorite: Boolean = false,
     /**
      * The player's audio session, needed by the opt-in audio-reactive
-     * visualiser. It lives on the ExoPlayer instance inside the service, so
+     * visualizer. It lives on the ExoPlayer instance inside the service, so
      * this snapshot is how the UI process learns about it.
      */
     val audioSessionId: Int = 0,

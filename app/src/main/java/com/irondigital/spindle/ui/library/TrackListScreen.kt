@@ -78,6 +78,7 @@ fun TrackListScreen(
 
     var addingToPlaylist by remember { mutableStateOf(false) }
     var actionsFor by remember { mutableStateOf<Track?>(null) }
+    var editingTrack by remember { mutableStateOf<Track?>(null) }
     val playlists by libraryViewModel.playlists.collectAsStateWithLifecycle()
 
     Column(
@@ -160,7 +161,16 @@ fun TrackListScreen(
                 playerViewModel.setFavorite(track.mediaId, track.mediaId !in favorites)
             },
             onAddToPlaylist = { libraryViewModel.addToPlaylist(it, listOf(track.mediaId)) },
+            onEditDetails = { editingTrack = track },
             onDismiss = { actionsFor = null },
+        )
+    }
+
+    editingTrack?.let { track ->
+        EditTrackHost(
+            track = track,
+            libraryViewModel = libraryViewModel,
+            onDismiss = { editingTrack = null },
         )
     }
 

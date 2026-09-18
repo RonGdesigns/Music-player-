@@ -9,8 +9,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
 /**
- * Artwork-derived colours, published down the tree so the player background,
- * the progress bar and the visualiser all agree without passing them by hand.
+ * Artwork-derived colors, published down the tree so the player background,
+ * the progress bar and the visualizer all agree without passing them by hand.
  */
 data class ArtworkColors(
     val dominant: Color = Ground.Plate,

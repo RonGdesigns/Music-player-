@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import com.irondigital.spindle.data.db.SpindleDatabase
 import com.irondigital.spindle.data.lyrics.LyricsRepository
+import com.irondigital.spindle.data.media.AudioImporter
 import com.irondigital.spindle.data.repo.CollectionsRepository
 import com.irondigital.spindle.data.repo.GainRepository
 import com.irondigital.spindle.data.repo.LibraryRepository
@@ -33,7 +34,7 @@ class SpindleApp : Application() {
     val snapshotStore: PlaybackSnapshotStore by lazy { PlaybackSnapshotStore(this) }
 
     val library: LibraryRepository by lazy {
-        LibraryRepository(this, settingsStore, applicationScope)
+        LibraryRepository(this, settingsStore, database.trackEditDao(), applicationScope)
     }
     val stats: StatsRepository by lazy { StatsRepository(database.statsDao()) }
     val collections: CollectionsRepository by lazy {
@@ -41,6 +42,7 @@ class SpindleApp : Application() {
     }
     val lyrics: LyricsRepository by lazy { LyricsRepository(this, database.lyricsDao()) }
     val gains: GainRepository by lazy { GainRepository(this, database.gainDao()) }
+    val importer: AudioImporter by lazy { AudioImporter(this) }
     val smartPlaylists: SmartPlaylistProvider by lazy {
         SmartPlaylistProvider(library, stats, collections)
     }

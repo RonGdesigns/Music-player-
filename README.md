@@ -18,7 +18,7 @@ layout that squashes:
 | Size | What it shows |
 |---|---|
 | ~2×1 | Art, title, artist, prev / play / next |
-| ~4×2 | Adds cover, progress, shuffle and repeat, favourite |
+| ~4×2 | Adds cover, progress, shuffle and repeat, favorite |
 | ~4×3 | Adds the queue: tap any upcoming track to jump straight to it |
 | ~4×5 | Same, with a long queue visible at once |
 
@@ -37,8 +37,21 @@ starts from there.
 - Songs, Albums, Artists, Folders, hand-built playlists
 - Search across title, artist and album
 - A minimum track length, so interludes and voice memos stay out
-- Long-press any track for play next, add to queue, favourite, add to a
+- Long-press any track for play next, add to queue, favorite, add to a
   playlist, and jump to its album or artist
+- **Import audio files** you already have: the picker copies them into
+  `Music/Spindle` through MediaStore, so they become real library files —
+  indexed, visible to every other player, and still there after a reinstall —
+  and you can drop the whole batch straight into a playlist. Needs Android 10 or
+  newer; doing it on older versions would mean holding `WRITE_EXTERNAL_STORAGE`,
+  a whole-device permission every user would then be asked for.
+- **Edit song details** — title, artist, album, year, track number — from a
+  long-press or from the song-info sheet. These are saved as overrides rather
+  than written into the audio file: rewriting tags needs a tag-writing library,
+  per-file write consent from Android 10 on, and carries a real risk of damaging
+  a file you cannot replace. An override is undoable, needs no permission and
+  survives a rescan. Only the fields you actually change are stored, so fixing
+  the artist does not freeze the title against a future retag.
 - **Fast-scroll rail** down the right edge of Songs, Artists and Folders. It is
   keyed off whichever field the list is sorted by, so it shows A–Z for the
   alphabetical sorts and the scale that sort actually runs on otherwise: years
@@ -61,9 +74,9 @@ From that, seven playlists nobody maintains:
 | **On Repeat** | Most played in the last 30 days |
 | **Recently Played** | In the order you last heard them |
 | **Recently Added** | New arrivals |
-| **Favourites** | Everything you marked |
+| **Favorites** | Everything you marked |
 | **Never Played** | In the library, never once heard |
-| **Forgotten Favourites** | High count, silent for three months |
+| **Forgotten Favorites** | High count, silent for three months |
 
 Each is a live query, so they are correct the moment a track finishes.
 
@@ -79,15 +92,15 @@ Synced lyrics highlight the current line and each line is tappable to seek.
 Nothing is fetched online, so nothing about what you play is sent anywhere.
 
 **Now playing**
-- Cover art with a visualiser behind it (see below)
+- Cover art with a visualizer behind it (see below)
 - Synced lyrics pane
 - Full queue: reorder, remove, jump
 - Song info sheet: file path (tap to copy), format, codec, bitrate, sample rate,
   channels, size, dates, and your play count against your library's ceiling
 - Sleep timer, with a "let the current track finish" option
 
-**Visualiser** — three modes:
-- **Artwork colours** (default) — colours pulled from the cover art, drifting
+**Visualizer** — three modes:
+- **Artwork colors** (default) — colors pulled from the cover art, drifting
   slowly across three depth planes. No permission, negligible battery.
 - **Audio reactive** — genuinely driven by the signal. Android gates its
   audio-analysis API behind the microphone permission, so this mode has to ask
@@ -104,10 +117,10 @@ plays counted, how much of the library you have actually heard, current and
 longest daily streak, plays per day over the last 30 days, plays by hour of the
 day, and your top artists and tracks.
 
-**Volume normalisation (ReplayGain)**
+**Volume normalization (ReplayGain)**
 
 Evens out a quiet album against a loud one using the ReplayGain values already
-in your files — nothing is analysed or re-encoded, and scanning loudness
+in your files — nothing is analyzed or re-encoded, and scanning loudness
 ourselves would mean decoding every track end to end.
 
 - **Match tracks** — every track against every other. Best on shuffle.
@@ -162,7 +175,7 @@ Requires JDK 17 and the Android SDK (compileSdk 35). Minimum device API is 26
 | `READ_MEDIA_AUDIO` (33+) / `READ_EXTERNAL_STORAGE` (≤32) | Reading your audio files. The app is useless without it | At first launch, with an explanation |
 | `POST_NOTIFICATIONS` | The playback notification and its controls | After the library works, not before |
 | `FOREGROUND_SERVICE_MEDIA_PLAYBACK` | Playing while the app is in the background | Automatic |
-| `RECORD_AUDIO` | **Optional.** The only way Android exposes its audio-analysis API for the reactive visualiser | Only if you turn that mode on |
+| `RECORD_AUDIO` | **Optional.** The only way Android exposes its audio-analysis API for the reactive visualizer | Only if you turn that mode on |
 
 There is no `INTERNET` permission.
 
@@ -170,8 +183,8 @@ There is no `INTERNET` permission.
 
 ```
 data/
-  media/      MediaStore scanning
-  db/         Room: play statistics, favourites, playlists, lyric overrides
+  media/      MediaStore scanning, ReplayGain tags, file import
+  db/         Room: play statistics, favorites, playlists, lyric overrides
   lyrics/     LRC parser, ID3/Vorbis/MP4 tag readers
   repo/       Library, statistics, collections, smart playlists
   settings/   DataStore preferences
@@ -187,7 +200,7 @@ widget/
 ui/
   theme/      Palette, typography, motion, spacing
   library/    Library tabs and track lists
-  player/     Now playing, lyrics, queue, song info, visualiser
+  player/     Now playing, lyrics, queue, song info, visualizer
   stats/      Listening stats and its charts
   settings/
 ```
@@ -202,14 +215,14 @@ is for.
 
 ## Design
 
-The register is a 1970s hi-fi separate: an anodised faceplate, engraved scales,
+The register is a 1970s hi-fi separate: an anodized faceplate, engraved scales,
 and a warm lamp behind the meter that tells you the thing is live.
 
 - **Ground** — blue-black graphite, never pure `#000`
 - **Lamp** — sodium amber, reserved for "this is live". Nothing decorative
   wears it
-- **Steel** — cool grey-blue for structure and secondary text
-- **Artwork** — a fourth colour supplied at runtime by whatever is playing
+- **Steel** — cool gray-blue for structure and secondary text
+- **Artwork** — a fourth color supplied at runtime by whatever is playing
 
 One interaction signature throughout: anything becoming live warms to amber
 over 180 ms and cools over 260 ms, slower off than on, the way a filament
@@ -235,12 +248,15 @@ measured one.
 - No embedded-artwork extraction for files whose album art is not in
   MediaStore's album-art provider.
 - ReplayGain is read from tags, not measured. A library that has never been
-  scanned by a tagger gets no normalisation.
+  scanned by a tagger gets no normalization.
 - No MP4/M4A ReplayGain yet (see above).
 - The fast-scroll rail thins its stops to what fits a phone's height, so on a
   library spanning many years the date-added rail lands a few rows off rather
   than exactly.
+- Editing song details changes how Spindle shows a track, not the tags inside
+  the file. Other apps will still see the original metadata.
+- Importing requires Android 10 or newer (see above).
 
-## Licence
+## License
 
 Not yet chosen. Bundled typefaces are SIL OFL 1.1.

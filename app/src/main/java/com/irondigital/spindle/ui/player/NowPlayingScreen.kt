@@ -60,6 +60,7 @@ import com.irondigital.spindle.ui.components.LampIconButton
 import com.irondigital.spindle.ui.components.LampTransportButton
 import com.irondigital.spindle.ui.components.TickScale
 import com.irondigital.spindle.ui.components.formatDuration
+import com.irondigital.spindle.ui.library.EditTrackHost
 import com.irondigital.spindle.ui.library.LibraryViewModel
 import com.irondigital.spindle.ui.theme.Corner
 import com.irondigital.spindle.ui.theme.Ground
@@ -80,7 +81,7 @@ private enum class PlayerPane(val label: String) {
 /**
  * The player.
  *
- * Full-bleed immersive: the artwork's own colours run edge to edge behind
+ * Full-bleed immersive: the artwork's own colors run edge to edge behind
  * everything, which is a completely different kind of space from the dense
  * index the user just came from. That contrast is the division — no rule is
  * needed between a list and this.
@@ -99,6 +100,7 @@ fun NowPlayingScreen(
     var pane by remember { mutableStateOf(PlayerPane.PLAYING) }
     var showInfo by remember { mutableStateOf(false) }
     var showSleepTimer by remember { mutableStateOf(false) }
+    var editingTrack by remember { mutableStateOf<com.irondigital.spindle.data.model.Track?>(null) }
 
     // Honours the setting rather than merely storing it: the screen is held
     // awake only while lyrics are actually on screen, and the flag is released
@@ -183,9 +185,18 @@ fun NowPlayingScreen(
             SongInfoSheet(
                 track = current,
                 playerViewModel = playerViewModel,
+                onEditDetails = { editingTrack = current },
                 onDismiss = { showInfo = false },
             )
         }
+    }
+
+    editingTrack?.let { current ->
+        EditTrackHost(
+            track = current,
+            libraryViewModel = libraryViewModel,
+            onDismiss = { editingTrack = null },
+        )
     }
 
     if (showSleepTimer) {
@@ -434,9 +445,9 @@ private fun TransportBlock(
             LampIconButton(
                 icon = if (playback.isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                 contentDescription = if (playback.isFavorite) {
-                    "Remove from favourites"
+                    "Remove from favorites"
                 } else {
-                    "Add to favourites"
+                    "Add to favorites"
                 },
                 onClick = playerViewModel::toggleFavorite,
                 lit = playback.isFavorite,

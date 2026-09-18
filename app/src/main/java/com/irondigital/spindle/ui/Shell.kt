@@ -131,7 +131,7 @@ fun MiniPlayerBar(
 }
 
 /**
- * The permission ask. A centred, axial composition — ceremony and focus on one
+ * The permission ask. A centered, axial composition — ceremony and focus on one
  * object — because it is the only screen in the app with exactly one thing to
  * do, and because it is deliberately not built like the dense index behind it.
  */

@@ -14,9 +14,9 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!--
-      Optional and never requested at launch. The audio-reactive visualiser mode
+      Optional and never requested at launch. The audio-reactive visualizer mode
       needs the platform Visualizer effect, which is gated behind RECORD_AUDIO.
-      The default artwork-driven visualiser needs no permission at all.
+      The default artwork-driven visualizer needs no permission at all.
     -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 

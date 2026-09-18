@@ -27,7 +27,7 @@ data class NormalizationResult(
  * The ReplayGain calculation.
  *
  * Isolated from the player entirely so the arithmetic — which is where volume
- * normalisation actually goes wrong — can be tested without an audio session.
+ * normalization actually goes wrong — can be tested without an audio session.
  */
 object Normalization {
 

@@ -29,7 +29,7 @@ enum class SmartPlaylist(val title: String, val subtitle: String) {
         "New arrivals in your library",
     ),
     FAVORITES(
-        "Favourites",
+        "Favorites",
         "Everything you marked",
     ),
     NEVER_PLAYED(
@@ -37,7 +37,7 @@ enum class SmartPlaylist(val title: String, val subtitle: String) {
         "In your library, never once heard",
     ),
     FORGOTTEN(
-        "Forgotten Favourites",
+        "Forgotten Favorites",
         "You played these a lot, then stopped",
     ),
 }

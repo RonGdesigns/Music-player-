@@ -92,3 +92,31 @@ data class TrackGain(
     val albumPeak: Float?,
     val scannedAt: Long,
 )
+
+/**
+ * Corrections the user has made to a track's details.
+ *
+ * Stored here rather than written back into the audio file, and that is a
+ * deliberate trade. Rewriting tags means a tag-writing library, per-file write
+ * consent on Android 10 and up, and a real chance of corrupting a file the user
+ * cannot replace. An override table always works, needs no permission, survives
+ * a MediaStore rescan, and can be undone — so a mistyped title is never
+ * destructive.
+ *
+ * A null field means "no correction, use what the file says", which is what lets
+ * a single field be overridden without freezing the rest of the metadata.
+ */
+@Entity(tableName = "track_edits")
+data class TrackEdit(
+    @PrimaryKey val mediaId: String,
+    val title: String? = null,
+    val artist: String? = null,
+    val album: String? = null,
+    val year: Int? = null,
+    val trackNumber: Int? = null,
+    val updatedAt: Long = 0,
+) {
+    val isEmpty: Boolean
+        get() = title == null && artist == null && album == null &&
+            year == null && trackNumber == null
+}

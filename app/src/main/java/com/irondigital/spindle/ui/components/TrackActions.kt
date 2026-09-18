@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Person
@@ -49,7 +50,7 @@ import com.irondigital.spindle.ui.theme.Steel
  * What a long press on a track offers.
  *
  * Long press is the only place in a list this dense with room for secondary
- * actions, so it carries all of them rather than one hidden favourite — a
+ * actions, so it carries all of them rather than one hidden favorite — a
  * gesture that does exactly one undiscoverable thing is worse than no gesture.
  */
 @Composable
@@ -61,6 +62,7 @@ fun TrackActionSheet(
     onAddToQueue: () -> Unit,
     onToggleFavorite: () -> Unit,
     onAddToPlaylist: (Long) -> Unit,
+    onEditDetails: (() -> Unit)? = null,
     onGoToAlbum: (() -> Unit)? = null,
     onGoToArtist: (() -> Unit)? = null,
     onDismiss: () -> Unit,
@@ -128,7 +130,7 @@ fun TrackActionSheet(
                     )
                     ActionRow(
                         icon = if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                        label = if (isFavorite) "Remove from favourites" else "Add to favourites",
+                        label = if (isFavorite) "Remove from favorites" else "Add to favorites",
                         lit = isFavorite,
                         onClick = { onToggleFavorite(); onDismiss() },
                     )
@@ -137,6 +139,14 @@ fun TrackActionSheet(
                         label = "Add to a playlist",
                         onClick = { choosingPlaylist = true },
                     )
+                    if (onEditDetails != null) {
+                        ActionRow(
+                            icon = Icons.Filled.Edit,
+                            label = "Edit details",
+                            description = "Fix a wrong title, artist or album",
+                            onClick = { onEditDetails(); onDismiss() },
+                        )
+                    }
                     if (onGoToAlbum != null) {
                         ActionRow(
                             icon = Icons.Filled.Album,

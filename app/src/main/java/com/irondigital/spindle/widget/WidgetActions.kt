@@ -154,7 +154,7 @@ class PreviousAction : ActionCallback {
 }
 
 /**
- * The queue row tap. This is the behaviour Samsung's widget lost: seeing what
+ * The queue row tap. This is the behavior Samsung's widget lost: seeing what
  * is coming up and going straight to it without opening anything.
  */
 @OptIn(UnstableApi::class)

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -25,11 +26,15 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.LibraryAdd
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -42,6 +47,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -58,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.irondigital.spindle.data.db.TrackEdit
 import com.irondigital.spindle.data.model.Track
 import com.irondigital.spindle.data.repo.LibraryRepository
 import com.irondigital.spindle.data.repo.SmartPlaylist
@@ -72,6 +79,7 @@ import com.irondigital.spindle.ui.components.IndexRail
 import com.irondigital.spindle.ui.components.IndexRailEntry
 import com.irondigital.spindle.ui.components.LampIconButton
 import com.irondigital.spindle.ui.components.TickScale
+import com.irondigital.spindle.ui.components.EditTrackSheet
 import com.irondigital.spindle.ui.components.TrackActionSheet
 import com.irondigital.spindle.ui.components.TrackRow
 import com.irondigital.spindle.ui.components.formatTotalDuration
@@ -80,6 +88,7 @@ import com.irondigital.spindle.ui.theme.Ground
 import com.irondigital.spindle.ui.theme.Ink
 import com.irondigital.spindle.ui.theme.Lamp
 import com.irondigital.spindle.ui.theme.Motion
+import com.irondigital.spindle.ui.theme.SignalRed
 import com.irondigital.spindle.ui.theme.Space
 import com.irondigital.spindle.ui.theme.SpindleType
 import com.irondigital.spindle.ui.theme.Steel
@@ -576,6 +585,7 @@ private fun SongsTab(
     val playlists by libraryViewModel.playlists.collectAsStateWithLifecycle()
 
     var actionsFor by remember { mutableStateOf<Track?>(null) }
+    var editingTrack by remember { mutableStateOf<Track?>(null) }
 
     val settings by libraryViewModel.settings.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
@@ -617,11 +627,54 @@ private fun SongsTab(
                 playerViewModel.setFavorite(track.mediaId, track.mediaId !in favorites)
             },
             onAddToPlaylist = { libraryViewModel.addToPlaylist(it, listOf(track.mediaId)) },
+            onEditDetails = { editingTrack = track },
             onGoToAlbum = { onOpen(Destination.Album(track.albumId)) },
             onGoToArtist = { onOpen(Destination.Artist(track.artist)) },
             onDismiss = { actionsFor = null },
         )
     }
+
+    editingTrack?.let { track ->
+        EditTrackHost(
+            track = track,
+            libraryViewModel = libraryViewModel,
+            onDismiss = { editingTrack = null },
+        )
+    }
+}
+
+/**
+ * Loads any existing correction before showing the sheet, so reopening it shows
+ * what the user last typed rather than starting from the file again.
+ */
+@Composable
+fun EditTrackHost(
+    track: Track,
+    libraryViewModel: LibraryViewModel,
+    onDismiss: () -> Unit,
+) {
+    var existing by remember(track.mediaId) { mutableStateOf<TrackEdit?>(null) }
+    var loaded by remember(track.mediaId) { mutableStateOf(false) }
+
+    LaunchedEffect(track.mediaId) {
+        existing = libraryViewModel.editFor(track.mediaId)
+        loaded = true
+    }
+    if (!loaded) return
+
+    EditTrackSheet(
+        track = track,
+        existing = existing,
+        onSave = {
+            libraryViewModel.saveEdit(it)
+            onDismiss()
+        },
+        onRevert = {
+            libraryViewModel.clearEdit(track.mediaId)
+            onDismiss()
+        },
+        onDismiss = onDismiss,
+    )
 }
 
 @Composable
@@ -726,25 +779,27 @@ private fun FoldersTab(libraryViewModel: LibraryViewModel, onOpen: (Destination)
 private fun ListsTab(libraryViewModel: LibraryViewModel, onOpen: (Destination) -> Unit) {
     val playlists by libraryViewModel.playlists.collectAsStateWithLifecycle()
     val counts by libraryViewModel.playlistCounts.collectAsStateWithLifecycle()
+    val importState by libraryViewModel.importState.collectAsStateWithLifecycle()
     var creating by remember { mutableStateOf(false) }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris -> libraryViewModel.importFiles(uris) }
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { creating = true }
-                    .padding(horizontal = Space.gutter, vertical = Space.m),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Add,
-                    contentDescription = null,
-                    tint = Lamp.Bright,
-                    modifier = Modifier.size(20.dp),
+            ActionRow(
+                icon = Icons.Filled.Add,
+                label = "New playlist",
+                onClick = { creating = true },
+            )
+            if (libraryViewModel.importSupported) {
+                ActionRow(
+                    icon = Icons.Filled.LibraryAdd,
+                    label = "Import audio files",
+                    subtitle = "Copies them into your music library",
+                    onClick = { importLauncher.launch(arrayOf("audio/*")) },
                 )
-                Spacer(Modifier.width(Space.m))
-                Text("New playlist", style = SpindleType.RowTitle, color = Lamp.Bright)
             }
             Groove()
         }
@@ -762,7 +817,7 @@ private fun ListsTab(libraryViewModel: LibraryViewModel, onOpen: (Destination) -
             item {
                 Text(
                     text = "Playlists you build by hand live here. The automatic " +
-                        "ones — Most Played, On Repeat, Favourites — are on Home " +
+                        "ones — Most Played, On Repeat, Favorites — are on Home " +
                         "and look after themselves.",
                     style = SpindleType.Body,
                     color = Steel.Dim,
@@ -770,6 +825,20 @@ private fun ListsTab(libraryViewModel: LibraryViewModel, onOpen: (Destination) -
                 )
             }
         }
+    }
+
+    when (val state = importState) {
+        is ImportState.Running -> ImportProgressDialog(state.fileCount)
+        is ImportState.Done -> ImportResultDialog(
+            state = state,
+            playlists = playlists,
+            onAddToPlaylist = { playlistId ->
+                libraryViewModel.addToPlaylist(playlistId, state.added.map { it.mediaId })
+                libraryViewModel.dismissImport()
+            },
+            onDismiss = libraryViewModel::dismissImport,
+        )
+        ImportState.Idle -> Unit
     }
 
     if (creating) {
@@ -941,6 +1010,149 @@ private fun AttachedIndexRail(
         activeEntryIndex = activeEntryIndex,
         onJump = { itemIndex ->
             scope.launch { listState.scrollToItem(itemIndex) }
+        },
+    )
+}
+
+
+// ----------------------------------------------------------------- import
+
+@Composable
+private fun ActionRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    subtitle: String? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = Space.gutter, vertical = Space.m),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = Lamp.Bright,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(Space.m))
+        Column {
+            Text(label, style = SpindleType.RowTitle, color = Lamp.Bright)
+            if (subtitle != null) {
+                Text(subtitle, style = SpindleType.Data, color = Steel.Dim)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImportProgressDialog(fileCount: Int) {
+    AlertDialog(
+        onDismissRequest = { },
+        containerColor = Ground.Plate,
+        title = { Text("Importing", style = SpindleType.Section, color = Ink.Primary) },
+        text = {
+            Text(
+                text = if (fileCount == 1) {
+                    "Copying one file into your music library."
+                } else {
+                    "Copying $fileCount files into your music library."
+                },
+                style = SpindleType.Body,
+                color = Steel.Bright,
+            )
+        },
+        confirmButton = { },
+    )
+}
+
+@Composable
+private fun ImportResultDialog(
+    state: ImportState.Done,
+    playlists: List<com.irondigital.spindle.data.db.Playlist>,
+    onAddToPlaylist: (Long) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val added = state.added
+    val failed = state.failed
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Ground.Plate,
+        title = {
+            Text(
+                text = when {
+                    added.isEmpty() -> "Nothing imported"
+                    added.size == 1 -> "1 track imported"
+                    else -> "${added.size} tracks imported"
+                },
+                style = SpindleType.Section,
+                color = Ink.Primary,
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                if (added.isNotEmpty()) {
+                    Text(
+                        text = "They are in Music/Spindle and in your library now. " +
+                            "Long-press any track to correct its title or artist.",
+                        style = SpindleType.Secondary,
+                        color = Steel.Dim,
+                    )
+
+                    if (playlists.isNotEmpty()) {
+                        Spacer(Modifier.height(Space.m))
+                        Text("Add them all to", style = SpindleType.RowTitle, color = Ink.Primary)
+                        Spacer(Modifier.height(Space.s))
+                        playlists.forEach { playlist ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onAddToPlaylist(playlist.id) }
+                                    .padding(vertical = Space.s),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(2.dp)
+                                        .height(18.dp)
+                                        .background(Lamp.Bright)
+                                )
+                                Spacer(Modifier.width(Space.m))
+                                Text(playlist.name, style = SpindleType.RowTitle, color = Ink.Primary)
+                            }
+                        }
+                    }
+                }
+
+                if (failed.isNotEmpty()) {
+                    Spacer(Modifier.height(Space.m))
+                    Text(
+                        text = if (failed.size == 1) "1 file was skipped" else "${failed.size} files were skipped",
+                        style = SpindleType.RowTitle,
+                        color = SignalRed,
+                    )
+                    Spacer(Modifier.height(Space.xs))
+                    failed.forEach { failure ->
+                        Text(
+                            text = "${failure.displayName} — ${failure.reason}",
+                            style = SpindleType.Data,
+                            color = Steel.Dim,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done", color = Lamp.Bright, style = SpindleType.RowTitle)
+            }
         },
     )
 }

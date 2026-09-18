@@ -39,7 +39,7 @@ import kotlin.random.Random
  * grain sits in front of both at full sharpness. Three planes is the working
  * number — four when the content has four, five reads as a diorama.
  *
- * Crucially the depth is the subject's own. Every colour here comes out of the
+ * Crucially the depth is the subject's own. Every color here comes out of the
  * cover art currently playing, so the layers *are* the content. A generic
  * mountain scene behind a record would be borrowed scenery, and borrowing is
  * the tell.
@@ -72,7 +72,7 @@ fun ArtworkVisualizer(
         }.getOrDefault(false)
     }
 
-    val transition = rememberInfiniteTransition(label = "visualiser")
+    val transition = rememberInfiniteTransition(label = "visualizer")
     val drift by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
@@ -212,7 +212,7 @@ private fun DrawScope.drawSpectrumSilhouette(
 
 /**
  * A tiled noise tile, tinted to the ground rather than neutral black — neutral
- * grain over a coloured field reads as dirt on the screen. Around 4% strength:
+ * grain over a colored field reads as dirt on the screen. Around 4% strength:
  * present, never noticeable as grain.
  */
 @Composable

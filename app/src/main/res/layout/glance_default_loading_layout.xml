@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Shown for the instant between the launcher asking for the widget and Glance
-  producing it. Matching the faceplate colour avoids a flash of another colour.
+  producing it. Matching the faceplate color avoids a flash of another color.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"

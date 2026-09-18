@@ -1,6 +1,6 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!--
-      A splash-free, edge-to-edge shell. Every visible colour is decided in
+      A splash-free, edge-to-edge shell. Every visible color is decided in
       Compose (ui/theme/Palette.kt); this exists only so the window background
       matches the app ground instead of flashing the platform default.
     -->

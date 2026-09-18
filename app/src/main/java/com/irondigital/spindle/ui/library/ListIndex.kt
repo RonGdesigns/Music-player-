@@ -84,7 +84,7 @@ object ListIndex {
 
     /**
      * First character, folded to upper case. Anything that is not a letter — a
-     * numeral, a bracket, a non-Latin script we cannot alphabetise meaningfully —
+     * numeral, a bracket, a non-Latin script we cannot alphabetize meaningfully —
      * collects under a single bucket rather than littering the rail with one-off
      * glyphs.
      */

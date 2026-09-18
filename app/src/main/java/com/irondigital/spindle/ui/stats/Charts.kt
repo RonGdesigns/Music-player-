@@ -41,7 +41,7 @@ import com.irondigital.spindle.ui.theme.Steel
  *
  * Every one of them is a single series, so none of them needs a legend or a
  * categorical palette — each is one hue (the lamp) against the plate, and the
- * bar length is the only thing carrying the value. Colouring bars darker where
+ * bar length is the only thing carrying the value. Coloring bars darker where
  * they are bigger would double-encode length as hue and spend the one free
  * channel on information the chart already shows.
  *
@@ -195,7 +195,7 @@ fun ColumnChart(
 }
 
 /**
- * Places a tick label centred on [fraction] of the width, clamped so the first
+ * Places a tick label centered on [fraction] of the width, clamped so the first
  * and last do not hang off the edge.
  */
 private fun Modifier.layoutTickAt(fraction: Float): Modifier = this.then(

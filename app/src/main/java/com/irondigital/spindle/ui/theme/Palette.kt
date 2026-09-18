@@ -3,7 +3,7 @@ package com.irondigital.spindle.ui.theme
 import androidx.compose.ui.graphics.Color
 
 /**
- * The reference is a 1970s hi-fi separate: an anodised faceplate, engraved
+ * The reference is a 1970s hi-fi separate: an anodized faceplate, engraved
  * scales, and a warm lamp behind the meter that tells you the thing is live.
  * Not a dark-mode-with-a-neon-accent skin, and deliberately nothing like the
  * warm-paper editorial register every second app arrives in.
@@ -14,11 +14,11 @@ import androidx.compose.ui.graphics.Color
  *            as a hole in the screen and destroys the sense of a surface.
  *   LAMP     sodium amber. Reserved for "this is live": what is playing, what
  *            is selected, what you just pressed. Nothing decorative wears it.
- *   STEEL    cool grey-blue. Structure, secondary text, engraved rules. Reads
+ *   STEEL    cool gray-blue. Structure, secondary text, engraved rules. Reads
  *            as metal against the amber rather than as a second accent.
  *
- * The album artwork supplies a fourth colour at runtime (see ArtworkPalette),
- * which is the only colour on screen the app did not choose — and the reason
+ * The album artwork supplies a fourth color at runtime (see ArtworkPalette),
+ * which is the only color on screen the app did not choose — and the reason
  * the player looks different for every record.
  *
  * Contrast ratios against GroundDeep, computed from the sRGB values:

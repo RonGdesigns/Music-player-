@@ -23,13 +23,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Pulls three colours out of the cover art.
+ * Pulls three colors out of the cover art.
  *
- * This is the only colour in the app the app did not choose, and it is what
+ * This is the only color in the app the app did not choose, and it is what
  * makes the player look different for every record without any of it being
- * arbitrary — the colours are the record's own.
+ * arbitrary — the colors are the record's own.
  *
- * Every extracted colour is then forced dark enough to sit behind white text.
+ * Every extracted color is then forced dark enough to sit behind white text.
  * A palette that comes back pale would otherwise turn the now-playing screen
  * into unreadable light-on-light the moment somebody plays an album with a
  * white sleeve, and "mostly fine" is not a contrast standard.
@@ -60,7 +60,7 @@ private suspend fun extract(context: Context, artUri: String): ArtworkColors =
 
         ArtworkColors(
             // The ground goes furthest down: it sits under everything and only
-            // has to read as "this record's colour", not as a colour.
+            // has to read as "this record's color", not as a color.
             dominant = dominant?.toGround() ?: Ground.Plate,
             vibrant = vibrant?.toAccent() ?: Lamp.Bright,
             muted = muted?.toGround(target = 0.14f) ?: Steel.Engrave,
@@ -76,7 +76,7 @@ private fun decodeScaled(context: Context, artUri: String): Bitmap? = runCatchin
     }
     if (bounds.outWidth <= 0) return@runCatching null
 
-    // Palette quantises anyway; 128px is plenty and keeps this off the
+    // Palette quantizes anyway; 128px is plenty and keeps this off the
     // main thread's critical path when skipping quickly through an album.
     var sample = 1
     while (bounds.outWidth / (sample * 2) >= 128) sample *= 2
@@ -88,7 +88,7 @@ private fun decodeScaled(context: Context, artUri: String): Bitmap? = runCatchin
 }.getOrNull()
 
 /**
- * Darkens a colour to a target luminance while keeping its hue. Anything at or
+ * Darkens a color to a target luminance while keeping its hue. Anything at or
  * below [target] is left alone — the point is a ceiling, not a uniform wash.
  */
 private fun Color.toGround(target: Float = 0.09f): Color {
@@ -105,7 +105,7 @@ private fun Color.toGround(target: Float = 0.09f): Color {
 
 /**
  * Accents have the opposite problem: a swatch from a dark sleeve can come back
- * almost black and vanish. This lifts such a colour until it clears roughly
+ * almost black and vanish. This lifts such a color until it clears roughly
  * 4.5:1 against the app ground.
  */
 private fun Color.toAccent(): Color {

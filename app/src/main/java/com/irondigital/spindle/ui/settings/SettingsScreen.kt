@@ -128,7 +128,7 @@ fun SettingsScreen(
         LazyColumn(contentPadding = PaddingValues(bottom = Space.xxl)) {
 
             item {
-                SettingsSection("Visualiser") {
+                SettingsSection("Visualizer") {
                     Text(
                         text = "What moves behind the cover art while a track plays.",
                         style = SpindleType.Secondary,
@@ -137,8 +137,8 @@ fun SettingsScreen(
                     Spacer(Modifier.height(Space.m))
 
                     ChoiceRow(
-                        title = "Artwork colours",
-                        description = "Colours drawn from the cover, drifting slowly. " +
+                        title = "Artwork colors",
+                        description = "Colors drawn from the cover, drifting slowly. " +
                             "No permissions, negligible battery.",
                         selected = settings.visualizerMode == VisualizerMode.ARTWORK,
                         onClick = { viewModel.setVisualizer(VisualizerMode.ARTWORK) },
@@ -275,7 +275,7 @@ fun SettingsScreen(
                     Text(
                         text = "Evens out the difference between a quiet album and a " +
                             "loud one, using the ReplayGain values already in your " +
-                            "files. Nothing is analysed or re-encoded, and files " +
+                            "files. Nothing is analyzed or re-encoded, and files " +
                             "without those tags simply play as they are.",
                         style = SpindleType.Secondary,
                         color = Steel.Dim,
@@ -411,8 +411,8 @@ fun SettingsScreen(
             text = {
                 Text(
                     text = "Every play count and the whole listening history go. " +
-                        "Most Played, On Repeat and Forgotten Favourites start from " +
-                        "nothing. Your playlists and favourites are untouched. This " +
+                        "Most Played, On Repeat and Forgotten Favorites start from " +
+                        "nothing. Your playlists and favorites are untouched. This " +
                         "cannot be undone.",
                     style = SpindleType.Body,
                     color = Steel.Bright,

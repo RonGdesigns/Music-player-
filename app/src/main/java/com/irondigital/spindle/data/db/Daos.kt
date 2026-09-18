@@ -208,3 +208,19 @@ interface GainDao {
     @Query("DELETE FROM track_gain")
     suspend fun clear()
 }
+
+@Dao
+interface TrackEditDao {
+
+    @Query("SELECT * FROM track_edits")
+    fun observeAll(): Flow<List<TrackEdit>>
+
+    @Query("SELECT * FROM track_edits WHERE mediaId = :mediaId")
+    suspend fun get(mediaId: String): TrackEdit?
+
+    @Upsert
+    suspend fun upsert(edit: TrackEdit)
+
+    @Query("DELETE FROM track_edits WHERE mediaId = :mediaId")
+    suspend fun delete(mediaId: String)
+}

@@ -1,6 +1,8 @@
 package com.irondigital.spindle.data.repo
 
 import android.content.Context
+import com.irondigital.spindle.data.db.TrackEdit
+import com.irondigital.spindle.data.db.TrackEditDao
 import com.irondigital.spindle.data.media.MediaStoreScanner
 import com.irondigital.spindle.data.model.AlbumGroup
 import com.irondigital.spindle.data.model.ArtistGroup
@@ -13,6 +15,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.sync.Mutex
@@ -29,10 +33,21 @@ import kotlinx.coroutines.sync.withLock
 class LibraryRepository(
     context: Context,
     private val settingsStore: SettingsStore,
+    private val trackEditDao: TrackEditDao,
     scope: CoroutineScope,
 ) {
     private val scanner = MediaStoreScanner(context)
     private val scanMutex = Mutex()
+
+    /**
+     * Guards the two inputs to the effective library — the raw scan and the
+     * user's corrections — which arrive from independent coroutines.
+     */
+    private val composeMutex = Mutex()
+
+    /** Straight from MediaStore, before the user's corrections are laid over it. */
+    private var scanned: List<Track> = emptyList()
+    private var edits: Map<String, TrackEdit> = emptyMap()
 
     private val _tracks = MutableStateFlow<List<Track>>(emptyList())
     val tracks: StateFlow<List<Track>> = _tracks.asStateFlow()
@@ -55,6 +70,19 @@ class LibraryRepository(
         .map { tracks -> groupFolders(tracks) }
         .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    init {
+        // Corrections are applied over the scan rather than baked into it, so
+        // editing a title does not require rescanning the device.
+        trackEditDao.observeAll()
+            .onEach { rows ->
+                composeMutex.withLock {
+                    edits = rows.filterNot { it.isEmpty }.associateBy { it.mediaId }
+                    publish()
+                }
+            }
+            .launchIn(scope)
+    }
+
     suspend fun refresh() = scanMutex.withLock {
         _scanState.value = ScanState.SCANNING
         val settings = settingsStore.settings.first()
@@ -62,12 +90,32 @@ class LibraryRepository(
             minDurationMs = settings.minTrackDurationSec * 1_000L,
             excludedFolders = settings.excludedFolders,
         )
-        _tracks.value = scanned
-        _byId.value = scanned.associateBy { it.mediaId }
+        composeMutex.withLock {
+            this.scanned = scanned
+            publish()
+        }
         _scanState.value = if (scanned.isEmpty()) ScanState.EMPTY else ScanState.READY
     }
 
+    /** Lays the corrections over the scan. Callers must hold [composeMutex]. */
+    private fun publish() {
+        val effective =
+            if (edits.isEmpty()) scanned
+            else scanned.map { track -> edits[track.mediaId]?.applyTo(track) ?: track }
+        _tracks.value = effective
+        _byId.value = effective.associateBy { it.mediaId }
+    }
+
     fun trackFor(mediaId: String): Track? = _byId.value[mediaId]
+
+    suspend fun editFor(mediaId: String): TrackEdit? = trackEditDao.get(mediaId)
+
+    suspend fun saveEdit(edit: TrackEdit) {
+        // An edit that corrects nothing is a deletion, not a row of nulls.
+        if (edit.isEmpty) trackEditDao.delete(edit.mediaId) else trackEditDao.upsert(edit)
+    }
+
+    suspend fun clearEdit(mediaId: String) = trackEditDao.delete(mediaId)
 
     fun tracksFor(mediaIds: List<String>): List<Track> {
         val index = _byId.value
@@ -144,3 +192,12 @@ class LibraryRepository(
 
     enum class ScanState { IDLE, SCANNING, READY, EMPTY }
 }
+
+/** Applies a correction, leaving untouched fields as the file reported them. */
+private fun TrackEdit.applyTo(track: Track): Track = track.copy(
+    title = title?.takeIf { it.isNotBlank() } ?: track.title,
+    artist = artist?.takeIf { it.isNotBlank() } ?: track.artist,
+    album = album?.takeIf { it.isNotBlank() } ?: track.album,
+    year = year ?: track.year,
+    trackNumber = trackNumber ?: track.trackNumber,
+)

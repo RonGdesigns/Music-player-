@@ -19,7 +19,7 @@ enum class VisualizerMode {
     OFF,
 
     /**
-     * Colours drawn from the album art, drifting slowly. Needs no permission,
+     * Colors drawn from the album art, drifting slowly. Needs no permission,
      * costs almost nothing, and is the default.
      */
     ARTWORK,

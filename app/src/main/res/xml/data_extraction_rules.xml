@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
     <cloud-backup>
-        <!-- Play counts, playlists and favourites are worth restoring to a new phone. -->
+        <!-- Play counts, playlists and favorites are worth restoring to a new phone. -->
         <include domain="database" path="spindle.db" />
         <include domain="sharedpref" path="." />
     </cloud-backup>

@@ -1,9 +1,12 @@
 package com.irondigital.spindle.ui.library
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.irondigital.spindle.data.db.Playlist
+import com.irondigital.spindle.data.db.TrackEdit
+import com.irondigital.spindle.data.media.ImportResult
 import com.irondigital.spindle.data.model.AlbumGroup
 import com.irondigital.spindle.data.model.ArtistGroup
 import com.irondigital.spindle.data.model.FolderGroup
@@ -97,6 +100,39 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             app.library.tracksFor(ids)
         }
 
+    // ------------------------------------------------------------- import
+
+    private val _importState = MutableStateFlow<ImportState>(ImportState.Idle)
+    val importState: StateFlow<ImportState> = _importState.asStateFlow()
+
+    val importSupported: Boolean get() = app.importer.isSupported
+
+    fun importFiles(sources: List<Uri>) {
+        if (sources.isEmpty()) return
+        viewModelScope.launch {
+            _importState.value = ImportState.Running(sources.size)
+            val results = app.importer.import(sources)
+            // The library is scanned from MediaStore, so the new rows only
+            // become tracks once it has been re-read.
+            app.library.refresh()
+            _importState.value = ImportState.Done(results)
+        }
+    }
+
+    fun dismissImport() {
+        _importState.value = ImportState.Idle
+    }
+
+    suspend fun editFor(mediaId: String) = app.library.editFor(mediaId)
+
+    fun saveEdit(edit: TrackEdit) {
+        viewModelScope.launch { app.library.saveEdit(edit) }
+    }
+
+    fun clearEdit(mediaId: String) {
+        viewModelScope.launch { app.library.clearEdit(mediaId) }
+    }
+
     fun createPlaylist(name: String, seed: List<String> = emptyList()) {
         viewModelScope.launch { app.collections.createPlaylist(name, seed) }
     }
@@ -115,5 +151,15 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
     fun deletePlaylist(playlistId: Long) {
         viewModelScope.launch { app.collections.delete(playlistId) }
+    }
+}
+
+/** Where an import has got to, so the UI can show progress and then a summary. */
+sealed interface ImportState {
+    data object Idle : ImportState
+    data class Running(val fileCount: Int) : ImportState
+    data class Done(val results: List<ImportResult>) : ImportState {
+        val added: List<ImportResult.Added> get() = results.filterIsInstance<ImportResult.Added>()
+        val failed: List<ImportResult.Failed> get() = results.filterIsInstance<ImportResult.Failed>()
     }
 }

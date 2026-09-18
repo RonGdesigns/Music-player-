@@ -69,6 +69,7 @@ private data class DeepDetails(
 fun SongInfoSheet(
     track: Track,
     playerViewModel: PlayerViewModel,
+    onEditDetails: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -181,6 +182,11 @@ fun SongInfoSheet(
         confirmButton = {
             TextButton(onClick = onDismiss) {
                 Text("Close", color = Lamp.Bright, style = SpindleType.RowTitle)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { onEditDetails(); onDismiss() }) {
+                Text("Edit details", color = Steel.Bright, style = SpindleType.RowTitle)
             }
         },
     )

@@ -16,8 +16,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlaylistItem::class,
         LyricsOverride::class,
         TrackGain::class,
+        TrackEdit::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class SpindleDatabase : RoomDatabase() {
@@ -27,6 +28,7 @@ abstract class SpindleDatabase : RoomDatabase() {
     abstract fun playlistDao(): PlaylistDao
     abstract fun lyricsDao(): LyricsDao
     abstract fun gainDao(): GainDao
+    abstract fun trackEditDao(): TrackEditDao
 
     companion object {
 
@@ -53,9 +55,29 @@ abstract class SpindleDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds the user's metadata corrections. */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `track_edits` (
+                        `mediaId` TEXT NOT NULL,
+                        `title` TEXT,
+                        `artist` TEXT,
+                        `album` TEXT,
+                        `year` INTEGER,
+                        `trackNumber` INTEGER,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`mediaId`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun build(context: Context): SpindleDatabase =
             Room.databaseBuilder(context.applicationContext, SpindleDatabase::class.java, "spindle.db")
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
     }
 }
