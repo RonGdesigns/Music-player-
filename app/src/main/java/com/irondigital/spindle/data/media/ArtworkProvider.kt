@@ -12,6 +12,8 @@ import com.irondigital.spindle.spindle
 import java.io.File
 import java.io.FileNotFoundException
 import java.util.Collections
+import java.util.concurrent.Semaphore
+import java.util.concurrent.TimeUnit
 
 /**
  * Serves cover art that is inside the audio file.
@@ -28,9 +30,20 @@ import java.util.Collections
  * to the car without any of them knowing this exists. One component instead of
  * four separate integrations.
  *
- * Extraction is lazy and cached on disk. Opening a file to find out it has no
- * art is not free, so a miss is remembered too — otherwise every scroll past an
- * art-less track pays for the discovery again.
+ * Extraction is lazy and cached on disk, and both halves of that matter more
+ * than they look. Opening a file to find out it has *no* art costs the same as
+ * opening one that has some, and in a library assembled from downloads most
+ * files have none — so a miss is written down as a marker file. Without it,
+ * every scroll past an art-less track paid the full cost again, and a library
+ * of a few thousand of them made the whole app feel slow.
+ *
+ * Extraction is also rate-limited. An image loader fires a request per visible
+ * row, so a fling asks for a dozen at once; letting all of them open and parse
+ * an audio file simultaneously is what turns a background cost into an
+ * unresponsive interface. Three at a time, and a request that cannot get a turn
+ * quickly gives up rather than holding a thread — the row keeps its placeholder
+ * and asks again the next time it is drawn, which is exactly what an image
+ * loader is built to do.
  */
 class ArtworkProvider : ContentProvider() {
 
@@ -43,16 +56,42 @@ class ArtworkProvider : ContentProvider() {
             ?: throw FileNotFoundException("No track in $uri")
         val context = context ?: throw FileNotFoundException("No context")
 
+        // Cheapest first: a set lookup, then a file stat. Both answer for a
+        // track with no art without opening anything.
         if (mediaId in missing) throw FileNotFoundException("No embedded art for $mediaId")
 
         val cached = cacheFile(context, mediaId)
         if (!cached.exists()) {
+            if (missFile(context, mediaId).exists()) {
+                missing += mediaId
+                throw FileNotFoundException("No embedded art for $mediaId")
+            }
+            extractInto(context, mediaId, cached)
+        }
+
+        return ParcelFileDescriptor.open(cached, ParcelFileDescriptor.MODE_READ_ONLY)
+    }
+
+    private fun extractInto(context: Context, mediaId: String, cached: File) {
+        if (!extractions.tryAcquire(EXTRACT_WAIT_MS, TimeUnit.MILLISECONDS)) {
+            // Busy. Giving up beats holding a loader thread: the row keeps its
+            // placeholder and the next draw asks again.
+            throw FileNotFoundException("Artwork extraction is busy")
+        }
+
+        try {
+            // Re-checked inside the gate, because several rows can queue for
+            // the same track and only the first should do the work.
+            if (cached.exists()) return
+
             val track = context.spindle.library.trackFor(mediaId)
+                // Transient — the library may not have scanned yet — so this is
+                // deliberately not written down as a miss.
                 ?: throw FileNotFoundException("Unknown track $mediaId")
 
             val bytes = extract(context, track.uri)
             if (bytes == null) {
-                missing += mediaId
+                rememberMiss(context, mediaId)
                 throw FileNotFoundException("No embedded art for $mediaId")
             }
 
@@ -66,9 +105,23 @@ class ArtworkProvider : ContentProvider() {
             }.onFailure { temp.delete() }
 
             if (!cached.exists()) throw FileNotFoundException("Could not cache art for $mediaId")
+        } finally {
+            extractions.release()
         }
+    }
 
-        return ParcelFileDescriptor.open(cached, ParcelFileDescriptor.MODE_READ_ONLY)
+    /**
+     * Records that this file has no art, on disk as well as in memory. The
+     * in-memory set alone would forget on every process death, and re-parsing a
+     * whole library of art-less downloads is the cost this exists to avoid.
+     */
+    private fun rememberMiss(context: Context, mediaId: String) {
+        missing += mediaId
+        runCatching {
+            val marker = missFile(context, mediaId)
+            marker.parentFile?.mkdirs()
+            marker.createNewFile()
+        }
     }
 
     private fun extract(context: Context, source: Uri): ByteArray? {
@@ -119,8 +172,18 @@ class ArtworkProvider : ContentProvider() {
         fun uriFor(mediaId: String): Uri =
             Uri.parse("content://$AUTHORITY/$mediaId")
 
+        /** At most this many files being opened and parsed at once. */
+        private val extractions = Semaphore(3)
+
+        private const val EXTRACT_WAIT_MS = 400L
+
+        private fun cacheDir(context: Context): File = File(context.cacheDir, "embedded-art")
+
         private fun cacheFile(context: Context, mediaId: String): File =
-            File(File(context.cacheDir, "embedded-art"), mediaId)
+            File(cacheDir(context), mediaId)
+
+        private fun missFile(context: Context, mediaId: String): File =
+            File(cacheDir(context), "$mediaId.none")
 
         /**
          * Forgets everything, for after a rescan or a retagging session. The
@@ -129,7 +192,7 @@ class ArtworkProvider : ContentProvider() {
          */
         fun clearCache(context: Context) {
             missing.clear()
-            runCatching { File(context.cacheDir, "embedded-art").deleteRecursively() }
+            runCatching { cacheDir(context).deleteRecursively() }
         }
     }
 }

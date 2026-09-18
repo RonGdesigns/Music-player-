@@ -74,8 +74,10 @@ starts from there.
   the art out of the file itself (ID3 `APIC`, FLAC picture blocks, MP4 `covr`)
   and serves it through a small content provider, which is what lets the lists,
   the player, the widget, the notification and Android Auto all show it without
-  any of them knowing where it came from. Extraction is lazy and cached, and a
-  file with no art is remembered as such so it is only opened once.
+  any of them knowing where it came from. Extraction is lazy, cached, and
+  rate-limited to three files at a time; a file with no art is written down as
+  such on disk, so a library of art-less downloads pays that cost once ever
+  rather than on every scroll.
 - **Fast-scroll rail** down the right edge of Songs, Artists and Folders. It is
   keyed off whichever field the list is sorted by, so it shows A–Z for the
   alphabetical sorts and the scale that sort actually runs on otherwise: years
