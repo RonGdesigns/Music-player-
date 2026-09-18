@@ -1165,10 +1165,7 @@ fun ImportDialogs(libraryViewModel: LibraryViewModel) {
     val playlists by libraryViewModel.playlists.collectAsStateWithLifecycle()
 
     when (val state = youtubeState) {
-        is YoutubeImportState.Running -> YoutubeProgressDialog(
-            state = state,
-            onCancel = libraryViewModel::cancelYoutubeImport,
-        )
+        is YoutubeImportState.Running -> YoutubeProgressDialog(state = state)
         YoutubeImportState.Finalizing -> YoutubeFinalizingDialog()
         is YoutubeImportState.Failed -> YoutubeErrorDialog(
             reason = state.reason,
@@ -1193,7 +1190,6 @@ fun ImportDialogs(libraryViewModel: LibraryViewModel) {
 @Composable
 private fun YoutubeProgressDialog(
     state: YoutubeImportState.Running,
-    onCancel: () -> Unit,
 ) {
     val percent = state.percent.toInt().coerceIn(0, 100)
     val eta = state.etaSeconds
@@ -1214,11 +1210,6 @@ private fun YoutubeProgressDialog(
             )
         },
         confirmButton = { },
-        dismissButton = {
-            TextButton(onClick = onCancel) {
-                Text("Cancel")
-            }
-        },
     )
 }
 
