@@ -86,6 +86,14 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             }
             .launchIn(viewModelScope)
 
+        // The queue is stored as media ids and resolved against the library, so
+        // a queue restored before the first scan finishes would render empty and
+        // stay that way until the next player event. Re-resolve when the scan
+        // lands instead.
+        app.library.tracks
+            .onEach { resolveQueue() }
+            .launchIn(viewModelScope)
+
         // The audio session id only exists on the player inside the service,
         // so it reaches the UI through the same snapshot the widget reads.
         app.snapshotStore.snapshot
@@ -271,11 +279,16 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             audioSessionId = _playback.value.audioSessionId,
         )
 
+        resolveQueue()
+
+        if (controller.isPlaying) startPositionTicker() else stopPositionTicker()
+    }
+
+    private fun resolveQueue() {
+        val controller = controller ?: return
         _queue.value = (0 until controller.mediaItemCount).mapNotNull { index ->
             app.library.trackFor(controller.getMediaItemAt(index).mediaId)
         }
-
-        if (controller.isPlaying) startPositionTicker() else stopPositionTicker()
     }
 
     /**
