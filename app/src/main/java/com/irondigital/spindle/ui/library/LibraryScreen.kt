@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -40,7 +42,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -57,11 +61,15 @@ import coil.compose.AsyncImage
 import com.irondigital.spindle.data.model.Track
 import com.irondigital.spindle.data.repo.LibraryRepository
 import com.irondigital.spindle.data.repo.SmartPlaylist
+import com.irondigital.spindle.data.settings.LibrarySort
+import kotlinx.coroutines.launch
 import com.irondigital.spindle.ui.Destination
 import com.irondigital.spindle.ui.EmptyLibrary
 import com.irondigital.spindle.ui.PlayerViewModel
 import com.irondigital.spindle.ui.components.Artwork
 import com.irondigital.spindle.ui.components.Groove
+import com.irondigital.spindle.ui.components.IndexRail
+import com.irondigital.spindle.ui.components.IndexRailEntry
 import com.irondigital.spindle.ui.components.LampIconButton
 import com.irondigital.spindle.ui.components.TickScale
 import com.irondigital.spindle.ui.components.TrackActionSheet
@@ -557,21 +565,33 @@ private fun SongsTab(
 
     var actionsFor by remember { mutableStateOf<Track?>(null) }
 
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
-        items(tracks, key = { it.mediaId }) { track ->
-            TrackRow(
-                track = track,
-                isCurrent = track.mediaId == playback.mediaId,
-                isPlaying = playback.isPlaying,
-                isFavorite = track.mediaId in favorites,
-                playCount = counts[track.mediaId] ?: 0,
-                onClick = {
-                    playerViewModel.play(tracks, tracks.indexOf(track))
-                    onOpenNowPlaying()
-                },
-                onLongClick = { actionsFor = track },
-            )
+    val settings by libraryViewModel.settings.collectAsStateWithLifecycle()
+    val listState = rememberLazyListState()
+
+    val railEntries = rememberRailEntries(tracks, settings.librarySort, counts)
+
+    Row(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.weight(1f),
+        ) {
+            items(tracks, key = { it.mediaId }) { track ->
+                TrackRow(
+                    track = track,
+                    isCurrent = track.mediaId == playback.mediaId,
+                    isPlaying = playback.isPlaying,
+                    isFavorite = track.mediaId in favorites,
+                    playCount = counts[track.mediaId] ?: 0,
+                    onClick = {
+                        playerViewModel.play(tracks, tracks.indexOf(track))
+                        onOpenNowPlaying()
+                    },
+                    onLongClick = { actionsFor = track },
+                )
+            }
         }
+
+        AttachedIndexRail(entries = railEntries, listState = listState)
     }
 
     actionsFor?.let { track ->
@@ -651,32 +671,42 @@ private fun AlbumsTab(libraryViewModel: LibraryViewModel, onOpen: (Destination) 
 @Composable
 private fun ArtistsTab(libraryViewModel: LibraryViewModel, onOpen: (Destination) -> Unit) {
     val artists by libraryViewModel.artists.collectAsStateWithLifecycle()
+    val listState = rememberLazyListState()
+    val railEntries = rememberLabelRailEntries(artists.map { it.name })
 
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
-        items(artists, key = { it.name }) { artist ->
-            GroupRow(
-                title = artist.name,
-                subtitle = "${artist.albumCount} albums · ${artist.trackCount} tracks",
-                trailing = formatTotalDuration(artist.totalDurationMs),
-                onClick = { onOpen(Destination.Artist(artist.name)) },
-            )
+    Row(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
+            items(artists, key = { it.name }) { artist ->
+                GroupRow(
+                    title = artist.name,
+                    subtitle = "${artist.albumCount} albums · ${artist.trackCount} tracks",
+                    trailing = formatTotalDuration(artist.totalDurationMs),
+                    onClick = { onOpen(Destination.Artist(artist.name)) },
+                )
+            }
         }
+        AttachedIndexRail(entries = railEntries, listState = listState)
     }
 }
 
 @Composable
 private fun FoldersTab(libraryViewModel: LibraryViewModel, onOpen: (Destination) -> Unit) {
     val folders by libraryViewModel.folders.collectAsStateWithLifecycle()
+    val listState = rememberLazyListState()
+    val railEntries = rememberLabelRailEntries(folders.map { it.name })
 
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
-        items(folders, key = { it.path }) { folder ->
-            GroupRow(
-                title = folder.name,
-                subtitle = folder.path,
-                trailing = "${folder.trackCount}",
-                onClick = { onOpen(Destination.Folder(folder.path)) },
-            )
+    Row(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
+            items(folders, key = { it.path }) { folder ->
+                GroupRow(
+                    title = folder.name,
+                    subtitle = folder.path,
+                    trailing = "${folder.trackCount}",
+                    onClick = { onOpen(Destination.Folder(folder.path)) },
+                )
+            }
         }
+        AttachedIndexRail(entries = railEntries, listState = listState)
     }
 }
 
@@ -840,6 +870,65 @@ private fun NamePlaylistDialog(
             TextButton(onClick = onDismiss) {
                 Text("Cancel", color = Steel.Dim, style = SpindleType.RowTitle)
             }
+        },
+    )
+}
+
+
+// ------------------------------------------------------------------- rail
+
+/**
+ * Builds the rail stops for a track list, keyed so the work only repeats when the
+ * list, the sort or the play counts actually change.
+ */
+@Composable
+private fun rememberRailEntries(
+    tracks: List<Track>,
+    sort: LibrarySort,
+    counts: Map<String, Int>,
+): List<IndexRailEntry> = remember(tracks, sort, counts) {
+    ListIndex.sampleForDisplay(ListIndex.forTracks(tracks, sort, counts)).map { entry ->
+        IndexRailEntry(
+            shortLabel = ListIndex.displayLabel(entry, sort),
+            spokenLabel = ListIndex.spokenLabel(entry, sort),
+            itemIndex = entry.itemIndex,
+        )
+    }
+}
+
+@Composable
+private fun rememberLabelRailEntries(labels: List<String>): List<IndexRailEntry> =
+    remember(labels) {
+        ListIndex.sampleForDisplay(ListIndex.forLabels(labels)).map { entry ->
+            IndexRailEntry(entry.label, entry.label, entry.itemIndex)
+        }
+    }
+
+/**
+ * Wires a rail to a list: the rail scrolls the list, and the list drives which
+ * stop is lit when the user is scrolling by hand instead.
+ */
+@Composable
+private fun AttachedIndexRail(
+    entries: List<IndexRailEntry>,
+    listState: LazyListState,
+) {
+    val scope = rememberCoroutineScope()
+
+    // derivedStateOf so a scroll only recomposes the rail when the lit stop
+    // actually changes, not on every pixel of every fling.
+    val activeEntryIndex by remember(entries) {
+        derivedStateOf {
+            val first = listState.firstVisibleItemIndex
+            entries.indexOfLast { it.itemIndex <= first }.coerceAtLeast(0)
+        }
+    }
+
+    IndexRail(
+        entries = entries,
+        activeEntryIndex = activeEntryIndex,
+        onJump = { itemIndex ->
+            scope.launch { listState.scrollToItem(itemIndex) }
         },
     )
 }
