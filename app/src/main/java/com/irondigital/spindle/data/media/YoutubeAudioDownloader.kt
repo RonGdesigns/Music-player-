@@ -80,6 +80,7 @@ class YoutubeAudioDownloader(private val context: Context) {
                 .addOption("--no-overwrites")
                 .addOption("--newline")
                 .addOption("--trim-filenames", 160)
+                .addOption("--format", "bestaudio/best")
                 .addOption("--extract-audio")
                 .addOption("--audio-format", "mp3")
                 .addOption("--audio-quality", "0")
