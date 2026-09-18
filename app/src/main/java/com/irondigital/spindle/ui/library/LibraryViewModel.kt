@@ -171,16 +171,8 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 is YoutubeDownloadResult.Failed -> {
                     _youtubeImportState.value = YoutubeImportState.Failed(result.reason)
                 }
-
-                YoutubeDownloadResult.Cancelled -> {
-                    _youtubeImportState.value = YoutubeImportState.Idle
-                }
             }
         }
-    }
-
-    fun cancelYoutubeImport() {
-        app.youtubeDownloader.cancelCurrent()
     }
 
     fun dismissYoutubeImportError() {
