@@ -12,6 +12,10 @@ android {
     defaultConfig {
         applicationId = "com.irondigital.spindle"
         minSdk = 26
+
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+        }
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
@@ -83,6 +87,11 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.palette)
     implementation(libs.coil.compose)
+
+    // On-device yt-dlp + FFmpeg for the paste-link audio converter.
+    val youtubedlAndroid = "0.18.1"
+    implementation("io.github.junkfood02.youtubedl-android:library:$youtubedlAndroid")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:$youtubedlAndroid")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
