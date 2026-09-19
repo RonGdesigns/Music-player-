@@ -54,6 +54,34 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var connectJob: Job? = null
     private val lyricsRequest = LatestRequest(viewModelScope)
 
+    val featureMessage = MutableStateFlow<String?>(null)
+    val loopState = app.snapshotStore.snapshot.map { it.loopStartMs to it.loopEndMs }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null to null)
+    fun clearFeatureMessage() { featureMessage.value = null }
+    private fun featureCommand(action: String, args: Bundle, success: String) {
+        viewModelScope.launch {
+            try {
+                val connected = awaitController() ?: error("The player is reconnecting. Try again.")
+                val result = connected.sendCustomCommand(SessionCommand(action, Bundle.EMPTY), args).await()
+                featureMessage.value = if (result.resultCode == 0) success else result.extras.getString("message") ?: "Could not complete that action"
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                featureMessage.value = error.message ?: "Could not complete that action"
+            }
+        }
+    }
+    fun saveSession(name: String) = featureCommand(PlaybackService.COMMAND_SAVE_SESSION,
+        Bundle().apply { putString("id", java.util.UUID.randomUUID().toString()); putString("name", name) }, "Session saved")
+    fun resumeSession(id: String) = featureCommand(PlaybackService.COMMAND_RESUME_SESSION,
+        Bundle().apply { putString("id", id) }, "Session resumed")
+    fun setLoop(start: Long, end: Long) = featureCommand(PlaybackService.COMMAND_SET_LOOP,
+        Bundle().apply { putLong("start", start); putLong("end", end); putString("mediaId", playback.value.mediaId) },
+        if (start < 0) "Loop cleared" else "A–B repeat enabled")
+    fun playBookmark(track: Track, position: Long) = command { controller ->
+        controller.setMediaItems(listOf(track.toMediaItem()), 0, position.coerceIn(0, track.durationMs.coerceAtLeast(0)))
+        controller.prepare(); controller.play()
+    }
+
     private val _playback = MutableStateFlow(PlaybackUiState())
     val playback: StateFlow<PlaybackUiState> = _playback.asStateFlow()
 
@@ -104,7 +132,17 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         // stay that way until the next player event. Re-resolve when the scan
         // lands instead.
         app.library.tracks
-            .onEach { resolveQueue() }
+            .onEach {
+                liveController?.let { c ->
+                    for (index in 0 until c.mediaItemCount) {
+                        val old = c.getMediaItemAt(index)
+                        val track = app.library.trackFor(old.mediaId) ?: continue
+                        if(old.mediaMetadata.artworkUri != track.artUri) c.replaceMediaItem(index,
+                            old.buildUpon().setMediaMetadata(track.toMediaItem().mediaMetadata).build())
+                    }
+                }
+                resolveQueue()
+            }
             .launchIn(viewModelScope)
 
         // The audio session id only exists on the player inside the service,

@@ -102,6 +102,7 @@ dependencies {
     // android.json is a stub that throws on the JVM, so the backup codec's
     // round-trip is tested against the real implementation.
     testImplementation("org.json:json:20240303")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

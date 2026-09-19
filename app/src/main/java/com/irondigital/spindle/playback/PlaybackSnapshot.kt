@@ -56,6 +56,8 @@ data class PlaybackSnapshot(
     val updatedAt: Long = 0,
     /** Full traversal order, retaining timeline indices for widget actions. */
     val playbackOrder: List<Int> = emptyList(),
+    val loopStartMs: Long? = null,
+    val loopEndMs: Long? = null,
 ) {
     val hasContent: Boolean get() = currentMediaId != null
 
@@ -86,6 +88,8 @@ data class PlaybackSnapshot(
             ?: queue.indices.toList()
 
     fun toJson(): String = JSONObject().apply {
+        put("loopStartMs", loopStartMs)
+        put("loopEndMs", loopEndMs)
         put("isPlaying", isPlaying)
         put("currentMediaId", currentMediaId ?: JSONObject.NULL)
         put("title", title)
@@ -142,6 +146,8 @@ data class PlaybackSnapshot(
                     )
                 }
                 PlaybackSnapshot(
+                    loopStartMs = json.optLong("loopStartMs", -1).takeIf { it >= 0 },
+                    loopEndMs = json.optLong("loopEndMs", -1).takeIf { it >= 0 },
                     isPlaying = json.optBoolean("isPlaying"),
                     currentMediaId = json.optString("currentMediaId").takeIf { it.isNotBlank() && it != "null" },
                     title = json.optString("title"),
