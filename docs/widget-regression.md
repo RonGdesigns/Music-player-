@@ -30,4 +30,4 @@ Local build and lint pass with 196 unit tests, zero lint errors, 73 warnings, an
 - [After: full transport at the same size](widget-review/after-short.png)
 - [Expanded artwork](widget-review/after-artwork.png)
 - [Queue row starts the selected track](widget-review/after-queue-jump.png)
-
+- [Final control contrast](widget-review/after-controls.png)
