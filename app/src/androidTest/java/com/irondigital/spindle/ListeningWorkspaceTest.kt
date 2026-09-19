@@ -110,6 +110,48 @@ class ListeningWorkspaceTest {
         app.customArtwork.clear("track:${track.mediaId}")
         assertNotEquals(uri,app.customArtwork.uriFor(track.mediaId,track.albumId))
     }
+    /** Requires a Spindle Now Playing widget placed at one-row height on the isolated launcher. */
+    @Test fun launcherWidgetKeepsTransportVisibleAndPlayable() = runBlocking {
+        val tracks = app.library.tracks.value.take(3)
+        assertEquals(3, tracks.size)
+        lateinit var future: com.google.common.util.concurrent.ListenableFuture<MediaController>
+        main { future = MediaController.Builder(context, SessionToken(context, ComponentName(context, PlaybackService::class.java))).buildAsync() }
+        val controller = future.get(20, TimeUnit.SECONDS)
+        try {
+            main { controller.setMediaItems(tracks.map { it.toMediaItem() }); controller.prepare(); controller.pause() }
+            device.executeShellCommand("settings put system font_scale 1.6")
+            delay(1000)
+            com.irondigital.spindle.widget.NowPlayingWidget.refresh(context)
+            device.pressHome()
+            val play = device.wait(Until.findObject(By.desc("Play")), 20000)
+            assertNotNull("Place a one-row Spindle widget on the test launcher first", play)
+            val target = if (play.isClickable) play else play.parent
+            val density = context.resources.displayMetrics.density
+            assertTrue("Widget play target is clipped: ${target.visibleBounds}", target.visibleBounds.height() >= 47 * density)
+            assertNotNull(device.findObject(By.desc("Previous")))
+            assertNotNull(device.findObject(By.desc("Next")))
+            capture("widget-short-large-text")
+            play.click()
+            assertNotNull(device.wait(Until.findObject(By.desc("Pause")), 15000))
+            var initial = -1
+            main { assertTrue(controller.isPlaying); initial = controller.currentMediaItemIndex }
+            device.findObject(By.desc("Next")).click()
+            withTimeout(10000) { while (true) {
+                var changed = false
+                main { changed = controller.currentMediaItemIndex != initial }
+                if (changed) break
+                delay(100)
+            } }
+            assertNotNull(device.wait(Until.findObject(By.desc("Pause")), 10000))
+            device.findObject(By.desc("Pause")).click()
+            withTimeout(10000) { while (true) {
+                var paused = false
+                main { paused = !controller.isPlaying }
+                if (paused) break
+                delay(100)
+            } }
+        } finally { main { controller.pause(); controller.release() } }
+    }
     private fun capture(name: String) {
         val dir=File(context.getExternalFilesDir(null),"review").apply { mkdirs() }
         device.takeScreenshot(File(dir,"$name.png"))

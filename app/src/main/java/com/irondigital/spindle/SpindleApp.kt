@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import android.content.res.Configuration
 
 /**
  * Manual dependency graph.
@@ -37,6 +39,19 @@ import kotlinx.coroutines.cancel
 class SpindleApp : Application() {
 
     val applicationScope = CoroutineScope(SupervisorJob())
+    val widgetFontScale = MutableStateFlow(1f)
+
+    override fun onCreate() {
+        super.onCreate()
+        widgetFontScale.value = resources.configuration.fontScale
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        widgetFontScale.value = newConfig.fontScale
+        applicationScope.launch { com.irondigital.spindle.widget.NowPlayingWidget.refresh(this@SpindleApp) }
+    }
+
 
     /**
      * Files shared into the app, waiting to be imported.
