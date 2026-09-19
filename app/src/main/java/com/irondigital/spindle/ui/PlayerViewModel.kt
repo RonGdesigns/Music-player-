@@ -6,9 +6,8 @@ import android.os.Bundle
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
@@ -20,8 +19,11 @@ import com.irondigital.spindle.data.model.Track
 import com.irondigital.spindle.data.settings.Settings
 import com.irondigital.spindle.playback.PlaybackService
 import com.irondigital.spindle.playback.await
+import com.irondigital.spindle.playback.toMediaItem
+import com.irondigital.spindle.playback.QueueEntry
 import com.irondigital.spindle.spindle
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -50,12 +52,15 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var controller: MediaController? = null
     private var positionJob: Job? = null
     private var connectJob: Job? = null
+    private val lyricsRequest = LatestRequest(viewModelScope)
 
     private val _playback = MutableStateFlow(PlaybackUiState())
     val playback: StateFlow<PlaybackUiState> = _playback.asStateFlow()
 
-    private val _queue = MutableStateFlow<List<Track>>(emptyList())
-    val queue: StateFlow<List<Track>> = _queue.asStateFlow()
+    private val _queue = MutableStateFlow<List<QueueRowState>>(emptyList())
+    val queue: StateFlow<List<QueueRowState>> = _queue.asStateFlow()
+    private var queueRevision = 0L
+    private var queueTimeline: Timeline? = null
 
     private val _lyrics = MutableStateFlow(Lyrics.NONE)
     val lyrics: StateFlow<Lyrics> = _lyrics.asStateFlow()
@@ -87,22 +92,10 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         // is deliberately off the transition path.
         currentTrack
             .onEach { track ->
+                lyricsRequest.cancel()
                 _lyrics.value = Lyrics.NONE
                 _lyricsLookup.value = LyricsLookupState.Idle
-                if (track == null) return@onEach
-
-                _lyrics.value = app.lyrics.load(track)
-
-                // Only when the user has switched lookup on, only when the file
-                // itself had nothing, and only once per track — the repository
-                // remembers an answer of "there are none" so a track without
-                // lyrics is not asked about every time it plays.
-                if (_lyrics.value.isEmpty &&
-                    settings.value.lyricsLookupEnabled &&
-                    !app.lyrics.alreadyLookedUp(track)
-                ) {
-                    lookUpLyrics(track)
-                }
+                if (track != null) loadLyrics(track)
             }
             .launchIn(viewModelScope)
 
@@ -219,6 +212,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             // Dropping the reference here is what lets the next press rebuild it.
             if (this@PlayerViewModel.controller === controller) {
                 this@PlayerViewModel.controller = null
+                queueTimeline = null
+                queueRevision++
             }
         }
     }
@@ -267,9 +262,17 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun next() = command { it.seekToNextMediaItem() }
-    fun previous() = command { it.seekToPreviousMediaItem() }
+    fun previous() = command { it.seekToPrevious() }
     fun seekTo(positionMs: Long) = command { it.seekTo(positionMs) }
-    fun seekToQueueIndex(index: Int) = command { it.seekTo(index, 0L) }
+    fun seekToQueueEntry(row: QueueRowState) = queueCommand(row) { it.seekTo(row.index, 0L) }
+
+    private fun queueCommand(row: QueueRowState, action: (MediaController) -> Unit) = command { player ->
+        // A queued command may resume after reconnecting or after another surface
+        // edits the timeline. Never apply an old row to the replacement queue.
+        resolveQueue()
+        val ids = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }
+        if (row.matches(queueRevision, ids)) action(player)
+    }
 
     fun toggleShuffle() = command { it.shuffleModeEnabled = !it.shuffleModeEnabled }
 
@@ -294,14 +297,10 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
     }
 
-    fun removeFromQueue(index: Int) = command { controller ->
-        if (index in 0 until controller.mediaItemCount) controller.removeMediaItem(index)
-    }
+    fun removeFromQueue(row: QueueRowState) = queueCommand(row) { it.removeMediaItem(row.index) }
 
-    fun moveInQueue(from: Int, to: Int) = command { controller ->
-        if (from in 0 until controller.mediaItemCount && to in 0 until controller.mediaItemCount) {
-            controller.moveMediaItem(from, to)
-        }
+    fun moveInQueue(row: QueueRowState, to: Int) = queueCommand(row) { controller ->
+        if (to in 0 until controller.mediaItemCount) controller.moveMediaItem(row.index, to)
     }
 
     fun toggleFavorite() {
@@ -338,33 +337,50 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         _playback.value = _playback.value.copy(sleepTimerMinutes = 0)
     }
 
+    private fun loadLyrics(track: Track, forceLookup: Boolean = false) {
+        if (_playback.value.mediaId != track.mediaId) return
+        lyricsRequest.submit(load = {
+            try {
+                var lyrics = app.lyrics.load(track)
+                var state: LyricsLookupState = LyricsLookupState.Idle
+                if (forceLookup || (lyrics.isEmpty && settings.value.lyricsLookupEnabled &&
+                        !app.lyrics.alreadyLookedUp(track))) {
+                    if (_playback.value.mediaId == track.mediaId) _lyricsLookup.value = LyricsLookupState.Searching
+                    state = when (val result = app.lyrics.lookUpOnline(track)) {
+                        is LyricsLookup.Found -> {
+                            lyrics = app.lyrics.load(track)
+                            LyricsLookupState.Idle
+                        }
+                        LyricsLookup.NotFound -> LyricsLookupState.NotFound
+                        is LyricsLookup.Failed -> LyricsLookupState.Failed(result.reason)
+                    }
+                }
+                lyrics to state
+            } catch (canceled: CancellationException) {
+                throw canceled
+            } catch (error: Exception) {
+                Lyrics.NONE to LyricsLookupState.Failed(error.message ?: "Could not load lyrics")
+            }
+        }, publish = { (lyrics, state) ->
+            if (_playback.value.mediaId == track.mediaId) {
+                _lyrics.value = lyrics
+                _lyricsLookup.value = state
+            }
+        })
+    }
+
     fun saveLyrics(track: Track, content: String) {
+        lyricsRequest.cancel()
         viewModelScope.launch {
             app.lyrics.saveOverride(track, content)
-            _lyrics.value = app.lyrics.load(track)
+            if (_playback.value.mediaId == track.mediaId) loadLyrics(track)
         }
     }
 
-    /**
-     * Asks the online database for this track's lyrics.
-     *
-     * A failure is reported rather than swallowed, because the difference
-     * between "this song has no lyrics anywhere" and "the server was busy"
-     * decides whether trying again is worth the user's time.
-     */
     fun lookUpLyrics(track: Track) {
-        if (_lyricsLookup.value == LyricsLookupState.Searching) return
-        viewModelScope.launch {
-            _lyricsLookup.value = LyricsLookupState.Searching
-            _lyricsLookup.value = when (val result = app.lyrics.lookUpOnline(track)) {
-                is LyricsLookup.Found -> {
-                    _lyrics.value = app.lyrics.load(track)
-                    LyricsLookupState.Idle
-                }
-                LyricsLookup.NotFound -> LyricsLookupState.NotFound
-                is LyricsLookup.Failed -> LyricsLookupState.Failed(result.reason)
-            }
-        }
+        if (_playback.value.mediaId != track.mediaId || _lyricsLookup.value == LyricsLookupState.Searching) return
+        _lyricsLookup.value = LyricsLookupState.Searching
+        loadLyrics(track, forceLookup = true)
     }
 
     /** Turns lookup on and immediately uses it, which is the same gesture. */
@@ -386,6 +402,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun setLyricsOffset(track: Track, offsetMs: Long) {
+        if (_playback.value.mediaId != track.mediaId) return
         _lyrics.value = _lyrics.value.copy(offsetMs = offsetMs)
         viewModelScope.launch { app.lyrics.setOffset(track, offsetMs) }
     }
@@ -401,6 +418,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private fun syncFromController() {
         val controller = liveController ?: return
 
+        if (_playback.value.mediaId != controller.currentMediaItem?.mediaId) {
+            lyricsRequest.cancel()
+            _lyrics.value = Lyrics.NONE
+            _lyricsLookup.value = LyricsLookupState.Idle
+        }
         _playback.value = PlaybackUiState(
             mediaId = controller.currentMediaItem?.mediaId,
             isPlaying = controller.isPlaying,
@@ -423,8 +445,19 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun resolveQueue() {
         val controller = liveController ?: return
-        _queue.value = (0 until controller.mediaItemCount).mapNotNull { index ->
-            app.library.trackFor(controller.getMediaItemAt(index).mediaId)
+        if (queueTimeline != controller.currentTimeline) {
+            queueTimeline = controller.currentTimeline
+            queueRevision++
+        }
+        val entries = (0 until controller.mediaItemCount).map { index ->
+            val item = controller.getMediaItemAt(index)
+            QueueEntry(
+                item.mediaId, item.mediaMetadata.title?.toString().orEmpty(),
+                item.mediaMetadata.artist?.toString().orEmpty(), item.mediaMetadata.durationMs ?: 0L,
+            )
+        }
+        _queue.value = resolveQueueRows(entries, queueRevision) { id ->
+            app.library.trackFor(id)?.let { QueueTrackDetails(it.title, it.artist, it.durationMs) }
         }
     }
 
@@ -489,21 +522,3 @@ sealed interface LyricsLookupState {
     data object NotFound : LyricsLookupState
     data class Failed(val reason: String) : LyricsLookupState
 }
-
-@OptIn(UnstableApi::class)
-fun Track.toMediaItem(): MediaItem = MediaItem.Builder()
-    .setMediaId(mediaId)
-    .setUri(uri)
-    .setMediaMetadata(
-        MediaMetadata.Builder()
-            .setTitle(title)
-            .setArtist(artist)
-            .setAlbumTitle(album)
-            .setArtworkUri(artUri)
-            .setTrackNumber(trackNumber.takeIf { it > 0 })
-            .setDurationMs(durationMs.takeIf { it > 0 })
-            .setIsBrowsable(false)
-            .setIsPlayable(true)
-            .build()
-    )
-    .build()

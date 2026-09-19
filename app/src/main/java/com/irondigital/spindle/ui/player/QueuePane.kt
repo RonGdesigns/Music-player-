@@ -37,6 +37,7 @@ import com.irondigital.spindle.ui.components.LampIconButton
 import com.irondigital.spindle.ui.components.formatDuration
 import com.irondigital.spindle.ui.components.formatTotalDuration
 import com.irondigital.spindle.ui.theme.Ink
+import com.irondigital.spindle.ui.theme.Ground
 import com.irondigital.spindle.ui.theme.Lamp
 import com.irondigital.spindle.ui.theme.Space
 import com.irondigital.spindle.ui.theme.SpindleType
@@ -62,7 +63,7 @@ fun QueuePane(playerViewModel: PlayerViewModel) {
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize().background(Ground.Scrim)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -98,7 +99,7 @@ fun QueuePane(playerViewModel: PlayerViewModel) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 60.dp)
-                        .clickable { playerViewModel.seekToQueueIndex(index) }
+                        .clickable { playerViewModel.seekToQueueEntry(track) }
                         .padding(start = Space.gutter, end = Space.s),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -123,7 +124,7 @@ fun QueuePane(playerViewModel: PlayerViewModel) {
                             Text(
                                 text = (index + 1).toString(),
                                 style = SpindleType.Data,
-                                color = if (isCurrent) Lamp.Bright else Steel.Engrave,
+                                color = if (isCurrent) Lamp.Bright else Steel.Dim,
                             )
                         }
                     }
@@ -153,28 +154,28 @@ fun QueuePane(playerViewModel: PlayerViewModel) {
                     LampIconButton(
                         icon = Icons.Filled.KeyboardArrowUp,
                         contentDescription = "Move ${track.title} up",
-                        onClick = { playerViewModel.moveInQueue(index, index - 1) },
+                        onClick = { playerViewModel.moveInQueue(track, index - 1) },
                         enabled = index > 0,
-                        size = 36.dp,
+                        size = 48.dp,
                         iconSize = 18.dp,
                         unlitColor = Steel.Dim,
                     )
                     LampIconButton(
                         icon = Icons.Filled.KeyboardArrowDown,
                         contentDescription = "Move ${track.title} down",
-                        onClick = { playerViewModel.moveInQueue(index, index + 1) },
+                        onClick = { playerViewModel.moveInQueue(track, index + 1) },
                         enabled = index < queue.lastIndex,
-                        size = 36.dp,
+                        size = 48.dp,
                         iconSize = 18.dp,
                         unlitColor = Steel.Dim,
                     )
                     LampIconButton(
                         icon = Icons.Filled.Close,
                         contentDescription = "Remove ${track.title} from queue",
-                        onClick = { playerViewModel.removeFromQueue(index) },
-                        size = 36.dp,
+                        onClick = { playerViewModel.removeFromQueue(track) },
+                        size = 48.dp,
                         iconSize = 16.dp,
-                        unlitColor = Steel.Engrave,
+                        unlitColor = Steel.Dim,
                     )
                 }
             }

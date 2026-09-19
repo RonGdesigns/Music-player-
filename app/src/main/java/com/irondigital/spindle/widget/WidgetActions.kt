@@ -205,7 +205,7 @@ class PreviousAction : ActionCallback {
             // press restarts the track, a second one within a few seconds goes
             // back. Media3's own default already does this — which is why the
             // wait has to accept a position change as well as an index change.
-            controller.seekToPreviousMediaItem()
+            controller.seekToPrevious()
             controller.awaitState {
                 it.currentMediaItemIndex != startIndex || it.currentPosition < startPosition
             }

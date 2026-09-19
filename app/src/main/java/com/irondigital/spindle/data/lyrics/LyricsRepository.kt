@@ -15,7 +15,7 @@ import java.io.File
  * The first three are local and always run. Looking online is last, optional,
  * and off until the user turns it on — a player that quietly ships every
  * filename you own to a lyrics API is not a default worth having. When it is
- * on, what goes out is the title, the artist and the length, and whatever comes
+ * on, what goes out is the title, artist, album, and length, and whatever comes
  * back is saved locally so a track is only ever looked up once.
  *
  * The user's timing correction is separate from all of that. It is stored per

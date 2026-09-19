@@ -411,9 +411,8 @@ fun SettingsScreen(
                     SwitchRow(
                         title = "Look up lyrics online",
                         description = "When a track has none of its own, ask an open " +
-                            "lyrics database. This is the only part of Spindle that " +
-                            "sends anything anywhere: the title, the artist and the " +
-                            "length of that one track go out, nothing else, and what " +
+                            "lyrics database. The title, artist, album, and length " +
+                            "of that track are sent to the provider, and what " +
                             "comes back is saved on the phone so a track is only " +
                             "looked up once. Off unless you turn it on.",
                         checked = settings.lyricsLookupEnabled,
@@ -494,9 +493,9 @@ fun SettingsScreen(
                 SettingsSection("About") {
                     Text(
                         text = "Spindle plays what is already on your phone. There is " +
-                            "no account, no sync and no network access of any kind: " +
-                            "your library, your play counts and your playlists never " +
-                            "leave the device.",
+                            "no account or sync. Your library, play counts, and playlists " +
+                            "stay on this device. Link downloads use the internet when " +
+                            "you start them; online lyrics are optional.",
                         style = SpindleType.Body,
                         color = Steel.Bright,
                     )

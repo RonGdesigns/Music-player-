@@ -4,8 +4,8 @@ An offline music player for Android, built around the thing Samsung Music
 removed: **a home-screen widget that shows the now-playing queue and lets you
 reach into it.**
 
-Everything is local by default. No account, no sync — the
-app has no internet permission at all. Your library, your play counts and your
+Everything is local by default. No account or sync. Internet access is used
+for link downloads you start and online lyrics lookup you can enable. Your library, your play counts and your
 playlists never leave the device.
 
 ---
@@ -123,7 +123,7 @@ Resolved in priority order:
    from.
 4. **An online lookup, off by default.** When switched on, a track with no
    lyrics of its own is looked up in LRCLIB, an open database with no account
-   and no key. What leaves the device is that track's title, artist and length —
+   and no key. What leaves the device is that track's title, artist, album, and length —
    nothing else — and whatever comes back is saved on the phone, so a track is
    only ever looked up once. A definite "no lyrics for this" is remembered too;
    a network failure is not, because one busy moment on someone else's server
@@ -236,7 +236,7 @@ does not cover a factory reset with backup switched off, a move to a phone from
 a different maker, or a reinstall after clearing data — and the play counts are
 the entire reason Most Played means anything.
 
-The file is keyed on the *recording* — artist, title and length rounded to the
+The file is keyed on the original file metadata — artist, title and length rounded to the
 second — not on MediaStore ids, because those ids do not survive a single one of
 the events this exists for. A restore merges rather than overwrites: where a
 track has been played on both phones the higher count wins, and a playlist whose
@@ -416,3 +416,17 @@ measured one.
 ## License
 
 Not yet chosen. Bundled typefaces are SIL OFL 1.1.
+
+### Reliability update
+
+Backup version 2 keeps original song identity separate from display corrections,
+so renaming a song in Spindle does not prevent restoring it on another phone.
+Version 1 backups remain readable and can match original or current display
+metadata. An old backup that omitted the original title or artist cannot
+reconstruct those missing values; unmatched entries remain reported instead of
+being assigned to a different song.
+
+The widget follows the actual shuffle order. Queue restoration retains shuffle,
+repeat, position, and available artwork metadata. Unavailable queue entries stay
+visible, and commands from an outdated queue are ignored until the current rows
+arrive. Add music in the library header offers audio-file import and link import.

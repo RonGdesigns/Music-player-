@@ -170,12 +170,12 @@ fun PermissionPrompt(
             Text(
                 text = if (alreadyAsked) {
                     "Spindle still cannot read your audio files. Grant access to " +
-                        "music and audio in Settings, then come back — everything " +
-                        "stays on this device either way."
+                        "music and audio in app settings, then come back. Your library " +
+                        "and listening history stay on this device."
                 } else {
                     "Spindle plays the files already on your phone. It needs " +
-                        "permission to read them, and nothing else: no account, " +
-                        "no network, no uploads."
+                        "permission to read them. No account is needed. Online lyrics " +
+                        "are optional, and link downloads start only when you request one."
                 },
                 style = SpindleType.Body,
                 color = Steel.Bright,
@@ -192,7 +192,7 @@ fun PermissionPrompt(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = if (alreadyAsked) "Ask again" else "Allow access",
+                    text = if (alreadyAsked) "Open app settings" else "Allow access",
                     style = SpindleType.RowTitle,
                     color = Ink.OnLamp,
                 )

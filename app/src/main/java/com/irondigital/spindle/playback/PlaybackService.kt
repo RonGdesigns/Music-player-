@@ -10,6 +10,8 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
+import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -71,6 +73,7 @@ class PlaybackService : MediaLibraryService() {
 
     /** Coalesces the burst of player callbacks a single action produces. */
     private var snapshotJob: Job? = null
+    private var restoring = true
 
     override fun onCreate() {
         super.onCreate()
@@ -141,7 +144,12 @@ class PlaybackService : MediaLibraryService() {
             .launchIn(serviceScope)
 
         serviceScope.launch {
-            restoreQueueIfEmpty()
+            try {
+                restoreQueueIfEmpty()
+            } finally {
+                restoring = false
+                publishSnapshot()
+            }
             // Android Auto can be the first surface that starts the app after
             // boot, so make sure the browse tree has current MediaStore rows.
             if (app.library.tracks.value.isEmpty()) {
@@ -438,6 +446,7 @@ class PlaybackService : MediaLibraryService() {
      * Debouncing means one disk write and one widget update instead of six.
      */
     private fun publishSnapshot(immediate: Boolean = false) {
+        if (restoring) return
         snapshotJob?.cancel()
         snapshotJob = serviceScope.launch {
             if (!immediate) delay(SNAPSHOT_DEBOUNCE_MS)
@@ -447,8 +456,8 @@ class PlaybackService : MediaLibraryService() {
 
     private suspend fun writeSnapshot() {
         val app = spindle
+        val favorites = app.collections.favoriteIdSet.first()
         val currentItem = player.currentMediaItem
-        val favorites = runCatching { app.collections.favoriteIdSet.first() }.getOrDefault(emptySet())
 
         val queue = ArrayList<QueueEntry>(player.mediaItemCount)
         for (i in 0 until player.mediaItemCount) {
@@ -458,6 +467,9 @@ class PlaybackService : MediaLibraryService() {
                 title = item.mediaMetadata.title?.toString().orEmpty(),
                 artist = item.mediaMetadata.artist?.toString().orEmpty(),
                 durationMs = item.mediaMetadata.durationMs ?: 0L,
+                album = item.mediaMetadata.albumTitle?.toString().orEmpty(),
+                artUri = item.mediaMetadata.artworkUri?.toString(),
+                uri = item.localConfiguration?.uri?.toString(),
             )
         }
 
@@ -477,6 +489,14 @@ class PlaybackService : MediaLibraryService() {
             isFavorite = currentItem?.mediaId in favorites,
             audioSessionId = player.audioSessionId,
             updatedAt = System.currentTimeMillis(),
+            playbackOrder = buildList {
+                val timeline = player.currentTimeline
+                var index = timeline.getFirstWindowIndex(player.shuffleModeEnabled)
+                while (index != C.INDEX_UNSET && size < timeline.windowCount) {
+                    add(index)
+                    index = timeline.getNextWindowIndex(index, Player.REPEAT_MODE_OFF, player.shuffleModeEnabled)
+                }
+            },
         )
 
         app.snapshotStore.write(snapshot)
@@ -494,29 +514,31 @@ class PlaybackService : MediaLibraryService() {
     private suspend fun restoreQueueIfEmpty() {
         if (player.mediaItemCount > 0) return
         val snapshot = spindle.snapshotStore.snapshot.first()
-        if (snapshot.queue.isEmpty() || snapshot.currentIndex < 0) return
-
-        val items = snapshot.queue.mapNotNull { entry ->
-            val id = entry.mediaId.toLongOrNull() ?: return@mapNotNull null
+        // Reading DataStore suspends. A phone or car may have supplied a queue meanwhile.
+        if (player.mediaItemCount > 0) return
+        val restored = snapshot.restoration() ?: return
+        val items = restored.entries.map { entry ->
             MediaItem.Builder()
                 .setMediaId(entry.mediaId)
-                .setUri(ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id))
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(entry.title)
-                        .setArtist(entry.artist)
-                        .setDurationMs(entry.durationMs.takeIf { it > 0 })
-                        .setIsBrowsable(false)
-                        .setIsPlayable(true)
-                        .build()
-                )
+                .setUri(entry.uri?.let(Uri::parse) ?: ContentUris.withAppendedId(
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, entry.mediaId.toLong(),
+                ))
+                .setMediaMetadata(MediaMetadata.Builder()
+                    .setTitle(entry.title)
+                    .setArtist(entry.artist)
+                    .setAlbumTitle(entry.album)
+                    .setArtworkUri(entry.artUri?.let(Uri::parse))
+                    .setDurationMs(entry.durationMs.takeIf { it > 0 })
+                    .setIsBrowsable(false)
+                    .setIsPlayable(true)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                    .build())
                 .build()
         }
-        if (items.isEmpty()) return
-
-        // Restored paused and at the saved position: waking a phone up with
-        // music because the launcher redrew a widget would be indefensible.
-        player.setMediaItems(items, snapshot.currentIndex.coerceIn(0, items.lastIndex), snapshot.positionMs)
+        player.setMediaItems(items, restored.currentIndex, restored.positionMs)
+        player.setShuffleOrder(DefaultShuffleOrder(restored.order.toIntArray(), System.nanoTime()))
+        player.shuffleModeEnabled = restored.shuffleEnabled
+        player.repeatMode = restored.repeatMode
         player.prepare()
     }
 

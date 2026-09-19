@@ -80,7 +80,7 @@ fun LyricsPane(
     //
     // The playhead moves four times a second; which line is lit changes every
     // few seconds. Reading the position directly rebuilt this whole pane —
-    // every visible line, every colour animation, the list itself — on every
+    // every visible line, every color animation, the list itself — on every
     // tick, including while it was mid-scroll. Behind a derived state the pane
     // only recomposes when the answer actually changes, which is the one thing
     // that should move it.
@@ -373,7 +373,7 @@ private fun NoLyrics(
                 if (!lookupEnabled) {
                     Spacer(Modifier.height(Space.s))
                     Text(
-                        text = "Sends the title, artist and length of this track to " +
+                        text = "Sends the title, artist, album, and length of this track to " +
                             "an open lyrics database, and turns lookup on for future " +
                             "tracks. Settings has the switch.",
                         style = SpindleType.Data,

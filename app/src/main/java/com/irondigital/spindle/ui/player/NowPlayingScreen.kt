@@ -115,7 +115,7 @@ fun NowPlayingScreen(
     var showSleepTimer by remember { mutableStateOf(false) }
     var editingTrack by remember { mutableStateOf<com.irondigital.spindle.data.model.Track?>(null) }
 
-    // Honours the setting rather than merely storing it: the screen is held
+    // Honors the setting rather than merely storing it: the screen is held
     // awake only while lyrics are actually on screen, and the flag is released
     // the moment the pane changes or the player closes.
     val view = LocalView.current

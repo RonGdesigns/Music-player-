@@ -17,6 +17,9 @@ data class QueueEntry(
     val title: String,
     val artist: String,
     val durationMs: Long,
+    val album: String = "",
+    val artUri: String? = null,
+    val uri: String? = null,
 )
 
 /**
@@ -51,6 +54,8 @@ data class PlaybackSnapshot(
      */
     val audioSessionId: Int = 0,
     val updatedAt: Long = 0,
+    /** Full traversal order, retaining timeline indices for widget actions. */
+    val playbackOrder: List<Int> = emptyList(),
 ) {
     val hasContent: Boolean get() = currentMediaId != null
 
@@ -59,15 +64,26 @@ data class PlaybackSnapshot(
      * backwards is what the app is for; a widget's job is "what is next".
      */
     fun upcoming(count: Int): List<IndexedValue<QueueEntry>> {
-        if (currentIndex < 0 || queue.isEmpty()) return emptyList()
-        return queue.withIndex().drop(currentIndex).take(count)
+        if (currentIndex !in queue.indices || count <= 0) return emptyList()
+        return upcomingIndices().take(count).map { IndexedValue(it, queue[it]) }
     }
 
     /** How many tracks are queued beyond what [upcoming] returned. */
     fun remainingAfter(count: Int): Int {
-        if (currentIndex < 0 || queue.isEmpty()) return 0
-        return (queue.size - currentIndex - count).coerceAtLeast(0)
+        return (upcomingIndices().size - count.coerceAtLeast(0)).coerceAtLeast(0)
     }
+
+    private fun upcomingIndices(): List<Int> {
+        if (currentIndex !in queue.indices) return emptyList()
+        if (repeatMode == 1) return listOf(currentIndex)
+        val order = validPlaybackOrder()
+        val offset = order.indexOf(currentIndex)
+        return if (repeatMode == 2) order.drop(offset) + order.take(offset) else order.drop(offset)
+    }
+
+    fun validPlaybackOrder(): List<Int> =
+        playbackOrder.takeIf { it.size == queue.size && it.toSet() == queue.indices.toSet() }
+            ?: queue.indices.toList()
 
     fun toJson(): String = JSONObject().apply {
         put("isPlaying", isPlaying)
@@ -84,6 +100,7 @@ data class PlaybackSnapshot(
         put("isFavorite", isFavorite)
         put("audioSessionId", audioSessionId)
         put("updatedAt", updatedAt)
+        put("playbackOrder", JSONArray(playbackOrder))
         put(
             "queue",
             JSONArray().also { array ->
@@ -94,6 +111,9 @@ data class PlaybackSnapshot(
                             put("title", entry.title)
                             put("artist", entry.artist)
                             put("durationMs", entry.durationMs)
+                            put("album", entry.album)
+                            put("artUri", entry.artUri ?: JSONObject.NULL)
+                            put("uri", entry.uri ?: JSONObject.NULL)
                         }
                     )
                 }
@@ -116,6 +136,9 @@ data class PlaybackSnapshot(
                         title = item.optString("title"),
                         artist = item.optString("artist"),
                         durationMs = item.optLong("durationMs"),
+                        album = item.optString("album"),
+                        artUri = item.optString("artUri").takeUnless { it.isBlank() || it == "null" },
+                        uri = item.optString("uri").takeUnless { it.isBlank() || it == "null" },
                     )
                 }
                 PlaybackSnapshot(
@@ -134,6 +157,9 @@ data class PlaybackSnapshot(
                     isFavorite = json.optBoolean("isFavorite"),
                     audioSessionId = json.optInt("audioSessionId"),
                     updatedAt = json.optLong("updatedAt"),
+                    playbackOrder = json.optJSONArray("playbackOrder")?.let { order ->
+                        (0 until order.length()).map { order.optInt(it, -1) }
+                    }.orEmpty(),
                 )
             }.getOrDefault(EMPTY)
         }

@@ -8,6 +8,12 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import java.io.InputStream
+import java.io.IOException
+import android.util.Log
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -42,7 +48,7 @@ class AudioImporter(private val context: Context) {
                 ImportResult.Failed(displayNameOf(it), "Importing needs Android 10 or newer")
             }
         }
-        sources.map { importOne(it) }
+        sources.map { currentCoroutineContext().ensureActive(); importOne(it) }
     }
 
     suspend fun importLocalFiles(sources: List<File>): List<ImportResult> = withContext(Dispatchers.IO) {
@@ -51,103 +57,78 @@ class AudioImporter(private val context: Context) {
                 ImportResult.Failed(it.name, "Importing needs Android 10 or newer")
             }
         }
-        sources.map { importOne(it) }
+        sources.map { currentCoroutineContext().ensureActive(); importOne(it) }
     }
 
-    private fun importOne(source: Uri): ImportResult {
+    private suspend fun importOne(source: Uri): ImportResult {
         val name = displayNameOf(source)
-        return runCatching {
-            val resolver = context.contentResolver
-            val mime = resolver.getType(source)?.takeIf { it.startsWith("audio/") }
-                ?: guessMimeFromName(name)
-                ?: return ImportResult.Failed(name, "That does not look like an audio file")
-
-            val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-
-            val pending = ContentValues().apply {
-                put(MediaStore.Audio.Media.DISPLAY_NAME, name)
-                put(MediaStore.Audio.Media.MIME_TYPE, mime)
-                put(MediaStore.Audio.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MUSIC}/$IMPORT_FOLDER")
-                // Without this the scanner may file it as a notification sound and
-                // the library will never show it.
-                put(MediaStore.Audio.Media.IS_MUSIC, 1)
-                put(MediaStore.Audio.Media.IS_PENDING, 1)
-            }
-
-            // MediaStore resolves a name collision itself by suffixing, so two
-            // imports of the same file do not overwrite each other.
-            val target = resolver.insert(collection, pending)
-                ?: return ImportResult.Failed(name, "Could not create the file")
-
-            var copied = 0L
-            resolver.openInputStream(source)?.use { input ->
-                resolver.openOutputStream(target)?.use { output ->
-                    copied = input.copyTo(output)
-                }
-            }
-
-            if (copied <= 0L) {
-                // A pending row that never received bytes would linger invisibly.
-                resolver.delete(target, null, null)
-                return ImportResult.Failed(name, "The file was empty or unreadable")
-            }
-
-            resolver.update(
-                target,
-                ContentValues().apply { put(MediaStore.Audio.Media.IS_PENDING, 0) },
-                null,
-                null,
-            )
-
-            ImportResult.Added(mediaId = target.lastPathSegment.orEmpty(), displayName = name)
-        }.getOrElse { error ->
-            ImportResult.Failed(name, error.message ?: "Could not import that file")
-        }
+        return importAudio(name,
+            mimeType = { context.contentResolver.getType(source)?.takeIf { it.startsWith("audio/") }
+                ?: guessMimeFromName(name) },
+            openSource = { context.contentResolver.openInputStream(source)
+                ?: throw IOException("Could not open the audio file") },
+        )
     }
 
-    private fun importOne(source: File): ImportResult {
-        val name = source.name
-        return runCatching {
-            if (!source.isFile || source.length() <= 0L) {
-                return ImportResult.Failed(name, "The converted file was empty or unreadable")
-            }
+    private suspend fun importOne(source: File): ImportResult = importAudio(
+        source.name, { guessMimeFromName(source.name) }, { source.inputStream() },
+    )
 
-            val mime = guessMimeFromName(name)
-                ?: return ImportResult.Failed(name, "That does not look like an audio file")
-
+    private suspend fun importAudio(
+        name: String,
+        mimeType: () -> String?,
+        openSource: () -> InputStream,
+    ): ImportResult {
+        val coroutine = currentCoroutineContext()
+        return try {
+            coroutine.ensureActive()
+            val mime = mimeType() ?: return ImportResult.Failed(name, "That does not look like an audio file")
             val resolver = context.contentResolver
             val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-            val pending = ContentValues().apply {
-                put(MediaStore.Audio.Media.DISPLAY_NAME, name)
-                put(MediaStore.Audio.Media.MIME_TYPE, mime)
-                put(MediaStore.Audio.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MUSIC}/$IMPORT_FOLDER")
-                put(MediaStore.Audio.Media.IS_MUSIC, 1)
-                put(MediaStore.Audio.Media.IS_PENDING, 1)
-            }
-
-            val target = resolver.insert(collection, pending)
-                ?: return ImportResult.Failed(name, "Could not create the file")
-
-            val copied = source.inputStream().use { input ->
-                resolver.openOutputStream(target)?.use { output ->
-                    input.copyTo(output)
-                } ?: 0L
-            }
-
-            if (copied <= 0L) {
-                resolver.delete(target, null, null)
-                return ImportResult.Failed(name, "The converted file was empty or unreadable")
-            }
-
-            resolver.update(
-                target,
-                ContentValues().apply { put(MediaStore.Audio.Media.IS_PENDING, 0) },
-                null,
-                null,
+            val target = completePendingImport(
+                create = {
+                    resolver.insert(collection, ContentValues().apply {
+                        put(MediaStore.Audio.Media.DISPLAY_NAME, name)
+                        put(MediaStore.Audio.Media.MIME_TYPE, mime)
+                        put(MediaStore.Audio.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MUSIC}/$IMPORT_FOLDER")
+                        put(MediaStore.Audio.Media.IS_MUSIC, 1)
+                        put(MediaStore.Audio.Media.IS_PENDING, 1)
+                    }) ?: throw IOException("Could not create the file")
+                },
+                copy = { destination ->
+                    openSource().use { input ->
+                        val output = resolver.openOutputStream(destination)
+                            ?: throw IOException("Could not write the audio file")
+                        output.use {
+                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            var total = 0L
+                            while (true) {
+                                coroutine.ensureActive()
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                it.write(buffer, 0, count)
+                                total += count
+                            }
+                            total
+                        }
+                    }
+                },
+                publish = { destination ->
+                    coroutine.ensureActive()
+                    resolver.update(destination,
+                        ContentValues().apply { put(MediaStore.Audio.Media.IS_PENDING, 0) },
+                        null, null,
+                    ) == 1
+                },
+                remove = { destination ->
+                    runCatching { resolver.delete(destination, null, null) }
+                        .onFailure { Log.w("SpindleImport", "Could not clean up pending audio", it) }
+                },
             )
-
-            ImportResult.Added(mediaId = target.lastPathSegment.orEmpty(), displayName = name)
-        }.getOrElse { error ->
+            ImportResult.Added(target.lastPathSegment.orEmpty(), name)
+        } catch (canceled: CancellationException) {
+            throw canceled
+        } catch (error: Exception) {
             ImportResult.Failed(name, error.message ?: "Could not import that file")
         }
     }

@@ -1,6 +1,9 @@
 package com.irondigital.spindle.data.repo
 
 import android.content.Context
+import android.util.Log
+import kotlinx.coroutines.CancellationException
+import com.irondigital.spindle.data.settings.Settings
 import com.irondigital.spindle.data.db.TrackEdit
 import com.irondigital.spindle.data.db.TrackEditDao
 import com.irondigital.spindle.data.media.MediaStoreScanner
@@ -35,8 +38,12 @@ class LibraryRepository(
     private val settingsStore: SettingsStore,
     private val trackEditDao: TrackEditDao,
     scope: CoroutineScope,
+    private val scan: suspend (Settings) -> List<Track> = { settings ->
+        MediaStoreScanner(context).scan(
+            settings.minTrackDurationSec * 1_000L, settings.excludedFolders, settings.includeNonMusicAudio,
+        )
+    },
 ) {
-    private val scanner = MediaStoreScanner(context)
     private val scanMutex = Mutex()
 
     /**
@@ -54,6 +61,8 @@ class LibraryRepository(
 
     private val _scanState = MutableStateFlow(ScanState.IDLE)
     val scanState: StateFlow<ScanState> = _scanState.asStateFlow()
+    private val _scanError = MutableStateFlow<String?>(null)
+    val scanError: StateFlow<String?> = _scanError.asStateFlow()
 
     /** Media id to track, rebuilt on each scan. The hot path for every lookup. */
     private val _byId = MutableStateFlow<Map<String, Track>>(emptyMap())
@@ -83,19 +92,33 @@ class LibraryRepository(
             .launchIn(scope)
     }
 
-    suspend fun refresh() = scanMutex.withLock {
+    suspend fun refresh(): Boolean = scanMutex.withLock {
+        val previous = _scanState.value
+        val previousError = _scanError.value
         _scanState.value = ScanState.SCANNING
-        val settings = settingsStore.settings.first()
-        val scanned = scanner.scan(
-            minDurationMs = settings.minTrackDurationSec * 1_000L,
-            excludedFolders = settings.excludedFolders,
-            includeNonMusicAudio = settings.includeNonMusicAudio,
-        )
-        composeMutex.withLock {
-            this.scanned = scanned
-            publish()
+        _scanError.value = null
+        try {
+            val result = scan(settingsStore.settings.first())
+            composeMutex.withLock {
+                scanned = result
+                publish()
+            }
+            _scanState.value = if (result.isEmpty()) ScanState.EMPTY else ScanState.READY
+            true
+        } catch (canceled: CancellationException) {
+            _scanState.value = previous
+            _scanError.value = previousError
+            throw canceled
+        } catch (error: Exception) {
+            Log.w("SpindleLibrary", "Library scan failed", error)
+            _scanError.value = if (error is SecurityException) {
+                "Audio access changed. Allow music and audio access in app settings, then try again."
+            } else {
+                "Could not read the music library. Your last library is still available. Try again."
+            }
+            _scanState.value = ScanState.ERROR
+            false
         }
-        _scanState.value = if (scanned.isEmpty()) ScanState.EMPTY else ScanState.READY
     }
 
     /** Lays the corrections over the scan. Callers must hold [composeMutex]. */
@@ -103,8 +126,8 @@ class LibraryRepository(
         val effective =
             if (edits.isEmpty()) scanned
             else scanned.map { track -> edits[track.mediaId]?.applyTo(track) ?: track }
-        _tracks.value = effective
         _byId.value = effective.associateBy { it.mediaId }
+        _tracks.value = effective
     }
 
     fun trackFor(mediaId: String): Track? = _byId.value[mediaId]
@@ -209,7 +232,7 @@ class LibraryRepository(
             }
             .sortedBy { it.name.lowercase() }
 
-    enum class ScanState { IDLE, SCANNING, READY, EMPTY }
+    enum class ScanState { IDLE, SCANNING, READY, EMPTY, ERROR }
 }
 
 /** Applies a correction, leaving untouched fields as the file reported them. */

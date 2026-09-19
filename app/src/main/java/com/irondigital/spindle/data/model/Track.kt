@@ -36,6 +36,9 @@ data class Track(
     val bitrateBps: Int,
     val dateAddedSec: Long,
     val dateModifiedSec: Long,
+    // Copies with display corrections retain the identity read from the file.
+    val sourceTitle: String = title,
+    val sourceArtist: String = artist,
 ) {
     /** Stable key used by the session, the database and the widget alike. */
     val mediaId: String get() = id.toString()

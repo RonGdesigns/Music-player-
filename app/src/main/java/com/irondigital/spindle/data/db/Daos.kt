@@ -20,7 +20,7 @@ interface StatsDao {
     @Query("SELECT * FROM play_stats")
     fun observeAll(): Flow<List<PlayStat>>
 
-    /** A one-shot read for export, where a Flow would just have to be cancelled. */
+    /** A one-shot read for export, where a Flow would just have to be canceled. */
     @Query("SELECT * FROM play_stats")
     suspend fun getAll(): List<PlayStat>
 

@@ -74,7 +74,7 @@ data class Settings(
     val keepScreenOnWithLyrics: Boolean = true,
     /**
      * Look lyrics up online when a track has none locally. Off until asked
-     * for: it is the only thing in the app that sends anything anywhere.
+     * for. Requests send track metadata to the lyrics provider.
      */
     val lyricsLookupEnabled: Boolean = false,
     val librarySort: LibrarySort = LibrarySort.TITLE,

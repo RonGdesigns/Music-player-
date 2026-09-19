@@ -73,6 +73,8 @@ class BackupRepository(
                 title = track.title,
                 artist = track.artist,
                 durationMs = track.durationMs,
+                sourceTitle = track.sourceTitle,
+                sourceArtist = track.sourceArtist,
                 playCount = stat?.playCount ?: 0,
                 skipCount = stat?.skipCount ?: 0,
                 lastPlayedAt = stat?.lastPlayedAt ?: 0,
@@ -103,6 +105,13 @@ class BackupRepository(
         val mediaIdByKey = HashMap<String, String>()
         for (track in library.tracks.value) {
             mediaIdByKey.putIfAbsent(keyFor(track), track.mediaId)
+            // Version 1 used display metadata. Retain exact legacy matches, but
+            // never guess when the old backup omitted the original identity.
+            if (backup.version == 1) {
+                mediaIdByKey.putIfAbsent(
+                    BackupCodec.keyFor(track.title, track.artist, track.durationMs), track.mediaId,
+                )
+            }
         }
 
         var matched = 0
@@ -155,7 +164,7 @@ class BackupRepository(
             }
         }
 
-        val existingNames = playlistDao.getAllPlaylists().map { it.name }.toSet()
+        val existingNames = playlistDao.getAllPlaylists().map { it.name }.toMutableSet()
         var playlistsRestored = 0
         var itemsMatched = 0
         var itemsInFile = 0
@@ -168,7 +177,13 @@ class BackupRepository(
 
             // A restore should never silently merge into a list the user has been
             // building since, so a clashing name gets a suffix instead.
-            val name = if (playlist.name in existingNames) "${playlist.name} (restored)" else playlist.name
+            var name = playlist.name
+            var suffix = 1
+            while (!existingNames.add(name)) {
+                name = if (suffix == 1) "${playlist.name} (restored)"
+                    else "${playlist.name} (restored $suffix)"
+                suffix++
+            }
             val now = System.currentTimeMillis()
             val id = playlistDao.insertPlaylist(
                 Playlist(name = name, createdAt = playlist.createdAt.takeIf { it > 0 } ?: now, updatedAt = now)
@@ -190,5 +205,5 @@ class BackupRepository(
     }
 
     private fun keyFor(track: Track): String =
-        BackupCodec.keyFor(track.title, track.artist, track.durationMs)
+        BackupCodec.keyFor(track.sourceTitle, track.sourceArtist, track.durationMs)
 }
