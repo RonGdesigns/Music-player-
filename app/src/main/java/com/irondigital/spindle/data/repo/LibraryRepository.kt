@@ -38,6 +38,7 @@ class LibraryRepository(
     private val settingsStore: SettingsStore,
     private val trackEditDao: TrackEditDao,
     scope: CoroutineScope,
+    private val artwork: com.irondigital.spindle.data.personal.CustomArtwork? = null,
     private val scan: suspend (Settings) -> List<Track> = { settings ->
         MediaStoreScanner(context).scan(
             settings.minTrackDurationSec * 1_000L, settings.excludedFolders, settings.includeNonMusicAudio,
@@ -80,6 +81,8 @@ class LibraryRepository(
         .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
+        artwork?.changes?.onEach { composeMutex.withLock { publish() } }?.launchIn(scope)
+
         // Corrections are applied over the scan rather than baked into it, so
         // editing a title does not require rescanning the device.
         trackEditDao.observeAll()
@@ -123,9 +126,10 @@ class LibraryRepository(
 
     /** Lays the corrections over the scan. Callers must hold [composeMutex]. */
     private fun publish() {
-        val effective =
+        val corrected =
             if (edits.isEmpty()) scanned
             else scanned.map { track -> edits[track.mediaId]?.applyTo(track) ?: track }
+        val effective = corrected.map { it.copy(customArtUri = artwork?.uriFor(it.mediaId, it.albumId)) }
         _byId.value = effective.associateBy { it.mediaId }
         _tracks.value = effective
     }
@@ -192,7 +196,7 @@ class LibraryRepository(
                         .distinct().singleOrNull()
                         ?: group.map { it.artist }.distinct().singleOrNull()
                         ?: "Various artists",
-                    artUri = first.albumArtUri,
+                    artUri = first.artUri,
                     trackCount = group.size,
                     totalDurationMs = group.sumOf { it.durationMs },
                     year = group.maxOf { it.year },

@@ -28,6 +28,9 @@ import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.irondigital.spindle.data.personal.availableSession
+import com.irondigital.spindle.data.personal.LoopRegion
+import com.google.common.util.concurrent.SettableFuture
 import com.irondigital.spindle.MainActivity
 import com.irondigital.spindle.R
 import com.irondigital.spindle.data.settings.Settings
@@ -74,6 +77,8 @@ class PlaybackService : MediaLibraryService() {
     /** Coalesces the burst of player callbacks a single action produces. */
     private var snapshotJob: Job? = null
     private var restoring = true
+    private var activeSessionId: String? = null
+    private var loop: LoopRegion? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -143,6 +148,14 @@ class PlaybackService : MediaLibraryService() {
             }
             .launchIn(serviceScope)
 
+        serviceScope.launch {
+            while (isActive) {
+                delay(80)
+                val region = loop ?: continue
+                if (region.mediaId != player.currentMediaItem?.mediaId) { loop = null; publishSnapshot() }
+                else if (region.shouldSeek(player.currentMediaItem?.mediaId, player.currentPosition, player.isPlaying)) player.seekTo(region.startMs)
+            }
+        }
         serviceScope.launch {
             try {
                 restoreQueueIfEmpty()
@@ -219,6 +232,9 @@ class PlaybackService : MediaLibraryService() {
         ): MediaSession.ConnectionResult {
             val sessionCommands =
                 MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
+                .add(SessionCommand(COMMAND_SAVE_SESSION, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_RESUME_SESSION, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_SET_LOOP, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_TOGGLE_FAVORITE, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_SET_SLEEP_TIMER, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_CANCEL_SLEEP_TIMER, Bundle.EMPTY))
@@ -306,6 +322,8 @@ class PlaybackService : MediaLibraryService() {
             startIndex: Int,
             startPositionMs: Long,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            activeSessionId = null
+            loop = null
             if (mediaItems.size == 1) {
                 val requestedId = mediaItems.first().mediaId
                 val queue = autoLibrary.queueForSelection(requestedId)
@@ -341,7 +359,52 @@ class PlaybackService : MediaLibraryService() {
             customCommand: SessionCommand,
             args: Bundle,
         ): ListenableFuture<SessionResult> {
+            if (customCommand.customAction in setOf(COMMAND_SAVE_SESSION, COMMAND_RESUME_SESSION, COMMAND_SET_LOOP)
+                && controller.packageName != packageName) return Futures.immediateFuture(SessionResult(SessionError.ERROR_PERMISSION_DENIED))
             when (customCommand.customAction) {
+                COMMAND_SAVE_SESSION, COMMAND_RESUME_SESSION -> {
+                    val result = SettableFuture.create<SessionResult>()
+                    serviceScope.launch {
+                        try {
+                            val app = spindle
+                            val id = args.getString("id") ?: error("Missing session")
+                            if (customCommand.customAction == COMMAND_SAVE_SESSION) {
+                                val snapshot = writeSnapshot()
+                                app.listening.saveSession(id, args.getString("name").orEmpty(), snapshot)
+                                activeSessionId = id
+                            } else {
+                                writeSnapshot()
+                                if (app.library.tracks.value.isEmpty()) app.library.refresh()
+                                val saved = app.listening.data.first().sessions.firstOrNull { it.id == id }
+                                    ?: error("That session is no longer available")
+                                val snapshot = saved.snapshot.availableSession(app.library.tracks.value.map { it.mediaId }.toSet())
+                                require(snapshot.queue.isNotEmpty()) { "The tracks in this session are unavailable" }
+                                loop = null
+                                applySnapshot(snapshot)
+                                activeSessionId = id
+                                app.listening.update { it.copy(activeSessionId = id) }
+                                player.play()
+                                publishSnapshot()
+                            }
+                            result.set(SessionResult(SessionResult.RESULT_SUCCESS))
+                        } catch (error: Exception) {
+                            if (error is kotlinx.coroutines.CancellationException) { result.cancel(false); throw error }
+                            result.set(SessionResult(SessionError.ERROR_BAD_VALUE, Bundle().apply { putString("message", error.message) }))
+                        }
+                    }
+                    return result
+                }
+                COMMAND_SET_LOOP -> {
+                    val start = args.getLong("start", -1)
+                    val end = args.getLong("end", -1)
+                    val proposed = LoopRegion(args.getString("mediaId").orEmpty(), start, end)
+                    if (start < 0) loop = null
+                    else if (proposed.validFor(player.currentMediaItem?.mediaId, player.duration)) {
+                        loop = proposed
+                        player.seekTo(start)
+                    } else return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+                    publishSnapshot(immediate = true)
+                }
                 COMMAND_TOGGLE_FAVORITE -> {
                     val mediaId = player.currentMediaItem?.mediaId
                     if (mediaId != null) {
@@ -454,7 +517,7 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    private suspend fun writeSnapshot() {
+    private suspend fun writeSnapshot(): PlaybackSnapshot {
         val app = spindle
         val favorites = app.collections.favoriteIdSet.first()
         val currentItem = player.currentMediaItem
@@ -489,6 +552,8 @@ class PlaybackService : MediaLibraryService() {
             isFavorite = currentItem?.mediaId in favorites,
             audioSessionId = player.audioSessionId,
             updatedAt = System.currentTimeMillis(),
+            loopStartMs = loop?.startMs,
+            loopEndMs = loop?.endMs,
             playbackOrder = buildList {
                 val timeline = player.currentTimeline
                 var index = timeline.getFirstWindowIndex(player.shuffleModeEnabled)
@@ -500,7 +565,17 @@ class PlaybackService : MediaLibraryService() {
         )
 
         app.snapshotStore.write(snapshot)
+        val sessionId = activeSessionId
+        try {
+            app.listening.update { data -> data.copy(activeSessionId = sessionId?.takeIf { id -> data.sessions.any { it.id == id } }, sessions = data.sessions.map {
+                if (it.id == sessionId) it.copy(snapshot = snapshot.copy(isPlaying = false), updatedAt = System.currentTimeMillis()) else it
+            }) }
+        } catch (error: Exception) {
+            if(error is kotlinx.coroutines.CancellationException) throw error
+            android.util.Log.w("SpindleSessions", "Could not update saved listening position", error)
+        }
         NowPlayingWidget.refresh(applicationContext)
+        return snapshot
     }
 
     /**
@@ -516,6 +591,12 @@ class PlaybackService : MediaLibraryService() {
         val snapshot = spindle.snapshotStore.snapshot.first()
         // Reading DataStore suspends. A phone or car may have supplied a queue meanwhile.
         if (player.mediaItemCount > 0) return
+        activeSessionId = try { spindle.listening.data.first().activeSessionId }
+        catch (error: Exception) { if(error is kotlinx.coroutines.CancellationException) throw error; null }
+        applySnapshot(snapshot)
+    }
+
+    private fun applySnapshot(snapshot: PlaybackSnapshot) {
         val restored = snapshot.restoration() ?: return
         val items = restored.entries.map { entry ->
             MediaItem.Builder()
@@ -543,6 +624,9 @@ class PlaybackService : MediaLibraryService() {
     }
 
     companion object {
+        const val COMMAND_SAVE_SESSION = "com.irondigital.spindle.SAVE_SESSION"
+        const val COMMAND_RESUME_SESSION = "com.irondigital.spindle.RESUME_SESSION"
+        const val COMMAND_SET_LOOP = "com.irondigital.spindle.SET_LOOP"
         const val COMMAND_TOGGLE_FAVORITE = "com.irondigital.spindle.TOGGLE_FAVORITE"
         const val COMMAND_SET_SLEEP_TIMER = "com.irondigital.spindle.SET_SLEEP_TIMER"
         const val COMMAND_CANCEL_SLEEP_TIMER = "com.irondigital.spindle.CANCEL_SLEEP_TIMER"

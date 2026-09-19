@@ -47,6 +47,8 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import androidx.media3.common.Player
+import com.irondigital.spindle.data.personal.*
+import kotlinx.coroutines.flow.catch
 import com.irondigital.spindle.MainActivity
 import com.irondigital.spindle.R
 import com.irondigital.spindle.playback.PlaybackSnapshot
@@ -82,6 +84,8 @@ class NowPlayingWidget : GlanceAppWidget() {
         // Seeded so the very first frame is drawn with real content rather
         // than the empty plate.
         val initial = store.snapshot.first()
+        val appearanceFlow = context.spindle.listening.data.catch { emit(ListeningData()) }
+        val initialAppearance = appearanceFlow.first().widget
 
         provideContent {
             // Collected inside provideContent, and that placement is the whole
@@ -95,6 +99,8 @@ class NowPlayingWidget : GlanceAppWidget() {
             // Collecting the flow here makes the composition observe it, so the
             // widget follows the player on its own and updateAll is only a nudge.
             val snapshot by store.snapshot.collectAsState(initial)
+            val listening by appearanceFlow.collectAsState(ListeningData(widget = initialAppearance))
+            val appearance = listening.widget
 
             // Decoding is kept off the composition and re-run only when the
             // artwork actually changes, not on every position update.
@@ -108,12 +114,12 @@ class NowPlayingWidget : GlanceAppWidget() {
                 modifier = GlanceModifier
                     .fillMaxSize()
                     .background(ColorProvider(Ground.Plate))
-                    .padding(PLATE_PADDING)
+                    .padding(if(appearance.density == WidgetDensity.COMPACT) 8.dp else PLATE_PADDING)
             ) {
                 if (!snapshot.hasContent) {
                     EmptyPlate()
                 } else {
-                    val showQueue = size.height >= QUEUE_SIZE.height
+                    val showQueue = size.height >= QUEUE_SIZE.height && appearance.style == WidgetStyle.QUEUE
                     val showProgress = size.height >= CARD_SIZE.height
                     val compact = !showProgress
                     val showExtraControls = size.width >= EXTRA_CONTROLS_MIN_WIDTH
@@ -124,7 +130,17 @@ class NowPlayingWidget : GlanceAppWidget() {
                     }
 
                     Column(modifier = GlanceModifier.fillMaxSize()) {
-                        NowPlayingHead(
+                        if(appearance.style == WidgetStyle.ARTWORK && size.height >= QUEUE_SIZE.height) {
+                            Box(GlanceModifier.fillMaxWidth().height(minOf(180.dp, size.height * if(appearance.density == WidgetDensity.COMPACT) .32f else .40f)).background(ColorProvider(Ground.Raised)),
+                                contentAlignment = Alignment.Center) {
+                                if(art != null) Image(ImageProvider(art!!), "Cover art", modifier = GlanceModifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                else Text(snapshot.title.split(" ").filter { it.isNotBlank() }.take(2).map { it.first().uppercaseChar() }.joinToString(""),
+                                    style = TextStyle(color = ColorProvider(Ink.Primary), fontSize = 40.sp, fontWeight = FontWeight.Bold))
+                            }
+                            Spacer(GlanceModifier.height(8.dp))
+                            Text(snapshot.title, maxLines = 1, style = TextStyle(color = ColorProvider(Ink.Primary), fontSize = 16.sp, fontWeight = FontWeight.Medium))
+                            Text(snapshot.artist, maxLines = 1, style = TextStyle(color = ColorProvider(Steel.Bright), fontSize = 12.sp))
+                        } else NowPlayingHead(
                             snapshot = snapshot,
                             art = art,
                             compact = compact,
@@ -151,7 +167,7 @@ class NowPlayingWidget : GlanceAppWidget() {
                             Spacer(GlanceModifier.height(8.dp))
                             EngravedRule()
                             Spacer(GlanceModifier.height(6.dp))
-                            QueueList(snapshot)
+                            QueueList(snapshot, appearance.density)
                         }
                     }
                 }
@@ -483,7 +499,7 @@ class NowPlayingWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun QueueList(snapshot: PlaybackSnapshot) {
+    private fun QueueList(snapshot: PlaybackSnapshot, density: WidgetDensity) {
         val upcoming = snapshot.upcoming(QUEUE_WINDOW)
         if (upcoming.isEmpty()) return
 
@@ -495,6 +511,7 @@ class NowPlayingWidget : GlanceAppWidget() {
                     entry = indexed.value,
                     queueIndex = indexed.index,
                     isCurrent = indexed.index == snapshot.currentIndex,
+                    density = density,
                 )
             }
 
@@ -518,11 +535,11 @@ class NowPlayingWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun QueueRow(entry: QueueEntry, queueIndex: Int, isCurrent: Boolean) {
+    private fun QueueRow(entry: QueueEntry, queueIndex: Int, isCurrent: Boolean, density: WidgetDensity) {
         Row(
             modifier = GlanceModifier
                 .fillMaxWidth()
-                .height(38.dp)
+                .height(if(density == WidgetDensity.COMPACT) 48.dp else 56.dp)
                 .clickable(
                     actionRunCallback<JumpToIndexAction>(
                         androidx.glance.action.actionParametersOf(

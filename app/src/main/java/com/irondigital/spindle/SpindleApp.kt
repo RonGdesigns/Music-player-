@@ -64,12 +64,15 @@ class SpindleApp : Application() {
      */
     val equalizerCapabilities = MutableStateFlow<EqualizerCapabilities?>(null)
 
+    val listening by lazy { com.irondigital.spindle.data.personal.ListeningStore(this) }
+    val customArtwork by lazy { com.irondigital.spindle.data.personal.CustomArtwork(this) }
+
     val database: SpindleDatabase by lazy { SpindleDatabase.build(this) }
     val settingsStore: SettingsStore by lazy { SettingsStore(this) }
     val snapshotStore: PlaybackSnapshotStore by lazy { PlaybackSnapshotStore(this) }
 
     val library: LibraryRepository by lazy {
-        LibraryRepository(this, settingsStore, database.trackEditDao(), applicationScope)
+        LibraryRepository(this, settingsStore, database.trackEditDao(), applicationScope, artwork = customArtwork)
     }
     val stats: StatsRepository by lazy { StatsRepository(database.statsDao()) }
     val collections: CollectionsRepository by lazy {

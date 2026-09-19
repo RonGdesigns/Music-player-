@@ -37,6 +37,7 @@ data class Track(
     val dateAddedSec: Long,
     val dateModifiedSec: Long,
     // Copies with display corrections retain the identity read from the file.
+    val customArtUri: Uri? = null,
     val sourceTitle: String = title,
     val sourceArtist: String = artist,
 ) {
@@ -52,7 +53,7 @@ data class Track(
      * every file during the scan, and the failure is already handled — the
      * artwork component keeps its placeholder behind the image.
      */
-    val artUri: Uri get() = albumArtUri ?: ArtworkProvider.uriFor(mediaId)
+    val artUri: Uri get() = customArtUri ?: albumArtUri ?: ArtworkProvider.uriFor(mediaId)
 
     /** What to group this under in the Artists list. */
     val effectiveAlbumArtist: String get() = albumArtist.ifBlank { artist }

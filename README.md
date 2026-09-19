@@ -30,6 +30,22 @@ the play button on the widget works even if the app has not been in memory for
 a day — the service restores the queue, paused and at the saved position, and
 starts from there.
 
+## Listening workspace
+
+Home now leads with Continue listening, pinned collections, saved sessions, and recently added albums. Home, Library, and Search are separate main destinations. Wide windows show the library beside the player. Now Playing uses a bounded cover with a typographic fallback; Queue has a compact transport, drag handles, and an accessible move/remove menu.
+
+- **Listening sessions:** save multiple named queues with position, shuffle order, and repeat mode. Resume a session from Home or Your listening. Changes while listening update the active session; choosing a new library queue detaches it. Missing files are omitted on resume, and a session with no available tracks reports an error.
+- **Pins:** add albums, playlists, and folders to Home from Manage beside Pinned. Unpin without changing the collection itself.
+- **Custom smart playlists:** combine favorites, days since last play, days since added, and maximum track length. Preview the matching count and choose title, recently added, or least-played order.
+- **Bookmarks:** name a moment from the player’s Listening tools and return to it from Home → Bookmarks.
+- **A–B repeat:** enter start/end seconds or capture the current playhead. Loops must span at least half a second, stay within one track, and clear when the track changes. Looping runs in the playback service and works with the screen closed.
+- **Custom covers:** choose an image for a track or album in Listening tools. Track covers take precedence over album covers. Reset restores the original cover; the audio file is never rewritten. Images are copied into app-owned storage, decoded at a bounded size, and do not depend on a temporary picker permission.
+- **Widget appearance:** choose queue or artwork emphasis, then compact or comfortable density. A layout preview appears before Apply. The preference applies to all Spindle widgets; small sizes retain transport controls.
+
+These additions are local to this installation. The existing JSON library backup still covers play history, favorites, playlists, and metadata corrections; it does not yet package listening sessions, pins, bookmarks, smart rules, or custom-cover image files for transfer to a different phone.
+
+See [design decisions](docs/listening-design.md) and the [feature verification record](docs/listening-verification.md) for evidence and device-specific limits.
+
 ## Features
 
 **Library**

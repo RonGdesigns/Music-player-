@@ -110,9 +110,11 @@ fun LibraryScreen(
     onOpen: (Destination) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenNowPlaying: () -> Unit,
+    section: String = "Home",
+    onSectionChange: (String) -> Unit = {},
 ) {
-    var tab by rememberSaveable { mutableStateOf(LibraryTab.HOME) }
-    var searching by rememberSaveable { mutableStateOf(false) }
+    var tab by rememberSaveable { mutableStateOf(LibraryTab.SONGS) }
+    val searching = section == "Search"
     var youtubeDialogOpen by rememberSaveable { mutableStateOf(false) }
     var addingMusic by rememberSaveable { mutableStateOf(false) }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) {
@@ -133,8 +135,8 @@ fun LibraryScreen(
             query = libraryViewModel.search.collectAsStateWithLifecycle().value,
             onQueryChange = libraryViewModel::setSearch,
             onToggleSearch = {
-                searching = !searching
-                if (!searching) libraryViewModel.setSearch("")
+                onSectionChange(if (searching) "Library" else "Search")
+                libraryViewModel.setSearch("")
             },
             onOpenSettings = onOpenSettings,
             onAddMusic = if (libraryViewModel.importSupported) ({ addingMusic = true }) else null,
@@ -145,7 +147,7 @@ fun LibraryScreen(
             return@Column
         }
 
-        TabBar(selected = tab, onSelect = { tab = it })
+        if(section == "Library") TabBar(selected = tab, onSelect = { tab = it })
 
         if (scanState == LibraryRepository.ScanState.SCANNING) {
             Text("Reading your music library…", style = SpindleType.Secondary, color = Steel.Dim,
@@ -169,6 +171,10 @@ fun LibraryScreen(
             return@Column
         }
 
+        if (section == "Home") {
+            com.irondigital.spindle.ui.personal.ListeningHome(libraryViewModel, playerViewModel, onOpen, onOpenNowPlaying)
+            return@Column
+        }
         when (tab) {
             LibraryTab.HOME -> HomeTab(libraryViewModel, playerViewModel, onOpen, onOpenNowPlaying)
             LibraryTab.SONGS -> SongsTab(libraryViewModel, playerViewModel, onOpen, onOpenNowPlaying)
@@ -357,7 +363,7 @@ private fun TabBar(selected: LibraryTab, onSelect: (LibraryTab) -> Unit) {
                 .padding(horizontal = Space.gutter),
             horizontalArrangement = Arrangement.spacedBy(Space.l),
         ) {
-            LibraryTab.entries.forEach { entry ->
+            LibraryTab.entries.filterNot { it == LibraryTab.HOME }.forEach { entry ->
                 val isSelected = entry == selected
                 val color by animateColorAsState(
                     targetValue = if (isSelected) Lamp.Bright else Steel.Dim,
