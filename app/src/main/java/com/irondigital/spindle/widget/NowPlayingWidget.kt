@@ -70,14 +70,9 @@ import kotlinx.coroutines.flow.first
  */
 class NowPlayingWidget : GlanceAppWidget() {
 
-    override val sizeMode = SizeMode.Responsive(
-        setOf(
-            BAR_SIZE,
-            CARD_SIZE,
-            QUEUE_SIZE,
-            TALL_SIZE,
-        )
-    )
+    // The launcher permits 180 x 70 dp. Responsive's previous 250 x 96 dp
+    // minimum rendered an oversized layout when no candidate fit that space.
+    override val sizeMode = SizeMode.Exact
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val store = context.spindle.snapshotStore
@@ -101,6 +96,7 @@ class NowPlayingWidget : GlanceAppWidget() {
             val snapshot by store.snapshot.collectAsState(initial)
             val listening by appearanceFlow.collectAsState(ListeningData(widget = initialAppearance))
             val appearance = listening.widget
+            val fontScale by context.spindle.widgetFontScale.collectAsState()
 
             // Decoding is kept off the composition and re-run only when the
             // artwork actually changes, not on every position update.
@@ -110,35 +106,36 @@ class NowPlayingWidget : GlanceAppWidget() {
             }
 
             val size = LocalSize.current
+            val layout = WidgetLayout.calculate(size.height.value, fontScale, appearance)
             Box(
                 modifier = GlanceModifier
                     .fillMaxSize()
                     .background(ColorProvider(Ground.Plate))
-                    .padding(if(appearance.density == WidgetDensity.COMPACT) 8.dp else PLATE_PADDING)
+                    .padding(PLATE_PADDING)
             ) {
                 if (!snapshot.hasContent) {
                     EmptyPlate()
                 } else {
-                    val showQueue = size.height >= QUEUE_SIZE.height && appearance.style == WidgetStyle.QUEUE
-                    val showProgress = size.height >= CARD_SIZE.height
+                    val showQueue = layout.showQueue
+                    val showProgress = layout.showProgress
                     val compact = !showProgress
                     val showExtraControls = size.width >= EXTRA_CONTROLS_MIN_WIDTH
 
-                    if (size.height < TINY_HEIGHT) {
+                    if (layout.tiny) {
                         TinyNowPlaying(snapshot)
                         return@Box
                     }
 
                     Column(modifier = GlanceModifier.fillMaxSize()) {
-                        if(appearance.style == WidgetStyle.ARTWORK && size.height >= QUEUE_SIZE.height) {
-                            Box(GlanceModifier.fillMaxWidth().height(minOf(180.dp, size.height * if(appearance.density == WidgetDensity.COMPACT) .32f else .40f)).background(ColorProvider(Ground.Raised)),
+                        if (layout.artworkHeight > 0f) {
+                            Box(GlanceModifier.fillMaxWidth().height(layout.artworkHeight.dp).background(ColorProvider(Ground.Raised)).clickable(actionStartActivity<MainActivity>()),
                                 contentAlignment = Alignment.Center) {
                                 if(art != null) Image(ImageProvider(art!!), "Cover art", modifier = GlanceModifier.fillMaxSize(), contentScale = ContentScale.Crop)
                                 else Text(snapshot.title.split(" ").filter { it.isNotBlank() }.take(2).map { it.first().uppercaseChar() }.joinToString(""),
                                     style = TextStyle(color = ColorProvider(Ink.Primary), fontSize = 40.sp, fontWeight = FontWeight.Bold))
                             }
                             Spacer(GlanceModifier.height(8.dp))
-                            Text(snapshot.title, maxLines = 1, style = TextStyle(color = ColorProvider(Ink.Primary), fontSize = 16.sp, fontWeight = FontWeight.Medium))
+                            Text(snapshot.title, modifier = GlanceModifier.clickable(actionStartActivity<MainActivity>()), maxLines = 1, style = TextStyle(color = ColorProvider(Ink.Primary), fontSize = 16.sp, fontWeight = FontWeight.Medium))
                             Text(snapshot.artist, maxLines = 1, style = TextStyle(color = ColorProvider(Steel.Bright), fontSize = 12.sp))
                         } else NowPlayingHead(
                             snapshot = snapshot,
@@ -167,7 +164,7 @@ class NowPlayingWidget : GlanceAppWidget() {
                             Spacer(GlanceModifier.height(8.dp))
                             EngravedRule()
                             Spacer(GlanceModifier.height(6.dp))
-                            QueueList(snapshot, appearance.density)
+                            QueueList(snapshot, layout.queueRowHeight)
                         }
                     }
                 }
@@ -179,6 +176,7 @@ class NowPlayingWidget : GlanceAppWidget() {
 
     @Composable
     private fun TinyNowPlaying(snapshot: PlaybackSnapshot) {
+        val controlSize = if (LocalSize.current.width >= 250.dp) 48.dp else 32.dp
         Row(
             modifier = GlanceModifier.fillMaxSize(),
             verticalAlignment = Alignment.Vertical.CenterVertically,
@@ -210,15 +208,15 @@ class NowPlayingWidget : GlanceAppWidget() {
             TransportButton(
                 R.drawable.ic_previous,
                 "Previous",
-                28.dp,
+                controlSize,
                 Steel.Bright,
                 PreviousAction::class.java,
             )
-            PlayPauseButton(snapshot.isPlaying, 32.dp)
+            PlayPauseButton(snapshot.isPlaying, controlSize)
             TransportButton(
                 R.drawable.ic_next,
                 "Next",
-                28.dp,
+                controlSize,
                 Steel.Bright,
                 NextAction::class.java,
             )
@@ -368,8 +366,8 @@ class NowPlayingWidget : GlanceAppWidget() {
         showExtras: Boolean,
         compact: Boolean,
     ) {
-        val sideSize = if (compact) 32.dp else 42.dp
-        val playSize = if (compact) 36.dp else 46.dp
+        val sideSize = 48.dp
+        val playSize = 48.dp
         Row(
             modifier = GlanceModifier.fillMaxWidth(),
             verticalAlignment = Alignment.Vertical.CenterVertically,
@@ -378,8 +376,8 @@ class NowPlayingWidget : GlanceAppWidget() {
                 TransportButton(
                     iconRes = R.drawable.ic_shuffle,
                     description = if (snapshot.shuffleEnabled) "Shuffle on" else "Shuffle off",
-                    size = 38.dp,
-                    tint = if (snapshot.shuffleEnabled) Lamp.Bright else Steel.Engrave,
+                    size = 48.dp,
+                    tint = if (snapshot.shuffleEnabled) Lamp.Bright else Steel.Dim,
                     action = ToggleShuffleAction::class.java,
                 )
                 Spacer(GlanceModifier.defaultWeight())
@@ -413,8 +411,8 @@ class NowPlayingWidget : GlanceAppWidget() {
                 TransportButton(
                     iconRes = repeatIcon,
                     description = "Repeat",
-                    size = 38.dp,
-                    tint = if (snapshot.repeatMode == Player.REPEAT_MODE_OFF) Steel.Engrave else Lamp.Bright,
+                    size = 48.dp,
+                    tint = if (snapshot.repeatMode == Player.REPEAT_MODE_OFF) Steel.Dim else Lamp.Bright,
                     action = CycleRepeatAction::class.java,
                 )
             }
@@ -499,7 +497,7 @@ class NowPlayingWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun QueueList(snapshot: PlaybackSnapshot, density: WidgetDensity) {
+    private fun QueueList(snapshot: PlaybackSnapshot, rowHeight: Float) {
         val upcoming = snapshot.upcoming(QUEUE_WINDOW)
         if (upcoming.isEmpty()) return
 
@@ -511,7 +509,7 @@ class NowPlayingWidget : GlanceAppWidget() {
                     entry = indexed.value,
                     queueIndex = indexed.index,
                     isCurrent = indexed.index == snapshot.currentIndex,
-                    density = density,
+                    rowHeight = rowHeight,
                 )
             }
 
@@ -535,11 +533,11 @@ class NowPlayingWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun QueueRow(entry: QueueEntry, queueIndex: Int, isCurrent: Boolean, density: WidgetDensity) {
+    private fun QueueRow(entry: QueueEntry, queueIndex: Int, isCurrent: Boolean, rowHeight: Float) {
         Row(
             modifier = GlanceModifier
                 .fillMaxWidth()
-                .height(if(density == WidgetDensity.COMPACT) 48.dp else 56.dp)
+                .height(rowHeight.dp)
                 .clickable(
                     actionRunCallback<JumpToIndexAction>(
                         androidx.glance.action.actionParametersOf(
@@ -595,7 +593,6 @@ class NowPlayingWidget : GlanceAppWidget() {
 
         /** Shuffle/repeat only appear when the host gives them real room. */
         private val EXTRA_CONTROLS_MIN_WIDTH = 300.dp
-        private val TINY_HEIGHT = 90.dp
 
         /**
          * How far ahead the widget lists.
@@ -611,10 +608,7 @@ class NowPlayingWidget : GlanceAppWidget() {
          */
         private const val QUEUE_WINDOW = 200
 
-        private val BAR_SIZE = DpSize(250.dp, 96.dp)
         private val CARD_SIZE = DpSize(250.dp, 150.dp)
-        private val QUEUE_SIZE = DpSize(250.dp, 230.dp)
-        private val TALL_SIZE = DpSize(300.dp, 340.dp)
 
         suspend fun refresh(context: Context) {
             runCatching { NowPlayingWidget().updateAll(context) }
