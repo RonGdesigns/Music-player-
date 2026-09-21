@@ -34,7 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.semantics.contentDescription
@@ -44,6 +44,7 @@ import com.irondigital.spindle.data.lyrics.LyricsSource
 import com.irondigital.spindle.data.lyrics.GeniusSearch
 import com.irondigital.spindle.ui.LyricsLookupState
 import com.irondigital.spindle.ui.PlayerViewModel
+import com.irondigital.spindle.ui.lyrics.GeniusReaderActivity
 import com.irondigital.spindle.ui.theme.Ground
 import com.irondigital.spindle.ui.theme.Ink
 import com.irondigital.spindle.ui.theme.Lamp
@@ -76,7 +77,7 @@ fun LyricsPane(
     val settings by playerViewModel.settings.collectAsStateWithLifecycle()
 
     var editing by remember { mutableStateOf(false) }
-    val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
     val listState = rememberLazyListState()
 
     // Genius exposes search results publicly, but its supported API does not
@@ -85,8 +86,11 @@ fun LyricsPane(
     val searchGenius = {
         track?.let { current ->
             editing = true
-            uriHandler.openUri(
-                GeniusSearch.url(current.title, current.artist, current.displayName)
+            context.startActivity(
+                GeniusReaderActivity.intent(
+                    context,
+                    GeniusSearch.url(current.title, current.artist, current.displayName),
+                )
             )
         }
         Unit
@@ -410,8 +414,8 @@ private fun NoLyrics(
                 )
                 Spacer(Modifier.height(Space.xs))
                 Text(
-                    text = "Opens several Genius matches. Copy the right lyrics, then " +
-                        "return here to paste and save them.",
+                    text = "Shows several matches in the built-in Genius Reader. Pick one, " +
+                        "copy its lyrics, then return here to paste and save them.",
                     style = SpindleType.Data,
                     color = Steel.Dim,
                 )
