@@ -76,7 +76,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         Bundle().apply { putString("id", id) }, "Session resumed")
     fun setLoop(start: Long, end: Long) = featureCommand(PlaybackService.COMMAND_SET_LOOP,
         Bundle().apply { putLong("start", start); putLong("end", end); putString("mediaId", playback.value.mediaId) },
-        if (start < 0) "Loop cleared" else "A–B repeat enabled")
+        if (start < 0) "Loop cleared" else "Aâ€“B repeat enabled")
     fun playBookmark(track: Track, position: Long) = command { controller ->
         controller.setMediaItems(listOf(track.toMediaItem()), 0, position.coerceIn(0, track.durationMs.coerceAtLeast(0)))
         controller.prepare(); controller.play()
@@ -284,10 +284,30 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /**
+     * Starts a queue shuffled.
+     *
+     * One command block on purpose: the player has to see these in order, and
+     * the request to arrange the queue must arrive after the queue exists.
+     */
     fun shufflePlay(tracks: List<Track>) {
         if (tracks.isEmpty()) return
-        command { it.shuffleModeEnabled = true }
-        play(tracks, tracks.indices.random())
+        command { controller ->
+            controller.shuffleModeEnabled = true
+            // A random first track, as before. What changes is everything after
+            // it, which is arranged rather than left uniformly random.
+            controller.setMediaItems(
+                tracks.map { it.toMediaItem() },
+                tracks.indices.random(),
+                0L,
+            )
+            controller.prepare()
+            controller.play()
+            controller.sendCustomCommand(
+                SessionCommand(PlaybackService.COMMAND_SMART_SHUFFLE, Bundle.EMPTY),
+                Bundle.EMPTY,
+            )
+        }
     }
 
     fun playPause() = command { controller ->

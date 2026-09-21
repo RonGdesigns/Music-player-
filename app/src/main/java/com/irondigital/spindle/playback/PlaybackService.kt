@@ -16,6 +16,7 @@ import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.source.ShuffleOrder
 import androidx.media3.session.CommandButton
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
@@ -73,6 +74,8 @@ class PlaybackService : MediaLibraryService() {
     private var settings: Settings = Settings()
     private var sleepTimerJob: Job? = null
     private var sleepAtEndOfTrack = false
+
+    private var shuffleWasEnabled = false
 
     /** Coalesces the burst of player callbacks a single action produces. */
     private var snapshotJob: Job? = null
@@ -238,6 +241,7 @@ class PlaybackService : MediaLibraryService() {
                 .add(SessionCommand(COMMAND_TOGGLE_FAVORITE, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_SET_SLEEP_TIMER, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_CANCEL_SLEEP_TIMER, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_SMART_SHUFFLE, Bundle.EMPTY))
                 .build()
 
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
@@ -425,6 +429,8 @@ class PlaybackService : MediaLibraryService() {
                 }
 
                 COMMAND_CANCEL_SLEEP_TIMER -> cancelSleepTimer()
+
+                COMMAND_SMART_SHUFFLE -> applySmartShuffle()
             }
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
         }
@@ -478,6 +484,46 @@ class PlaybackService : MediaLibraryService() {
         sleepAtEndOfTrack = false
     }
 
+    // ------------------------------------------------------------- shuffle
+
+    /**
+     * Replaces the player's own shuffle ordering with one that sounds shuffled.
+     *
+     * Done through ExoPlayer's ShuffleOrder rather than by rewriting the queue,
+     * and that is the whole reason this works cleanly: the shuffle flag stays
+     * the player's, so the button, the widget, the notification and the car all
+     * read the same state they always did, and turning shuffle off restores the
+     * original order for free because the queue itself was never touched.
+     */
+    private fun applySmartShuffle() {
+        if (!settings.smartShuffleEnabled) return
+
+        val count = player.mediaItemCount
+        // Nothing to arrange, and nowhere to put it.
+        if (count < 3) return
+
+        val stats = spindle.playStats.value
+        val candidates = (0 until count).map { index ->
+            val item = player.getMediaItemAt(index)
+            ShuffleCandidate(
+                artist = item.mediaMetadata.artist?.toString().orEmpty(),
+                album = item.mediaMetadata.albumTitle?.toString().orEmpty(),
+                lastPlayedAt = stats[item.mediaId]?.lastPlayedAt ?: 0L,
+            )
+        }
+
+        val order = SmartShuffle.order(
+            candidates = candidates,
+            // Whatever is playing stays playing; only what comes after it moves.
+            startIndex = player.currentMediaItemIndex,
+            favorUnheard = settings.shuffleFavorsUnheard,
+        )
+
+        runCatching {
+            player.setShuffleOrder(ShuffleOrder.DefaultShuffleOrder(order, System.nanoTime()))
+        }
+    }
+
     // ------------------------------------------------------------ snapshot
 
     private inner class PlayerWatcher : Player.Listener {
@@ -500,6 +546,13 @@ class PlaybackService : MediaLibraryService() {
             // track exists will succeed here, on the first transition to ready.
             if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED)) {
                 effects.apply()
+            }
+
+            // Only on the way on. Re-ordering every time the flag is touched
+            // would reshuffle the queue under someone who just turned it off.
+            if (events.contains(Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED)) {
+                if (player.shuffleModeEnabled && !shuffleWasEnabled) applySmartShuffle()
+                shuffleWasEnabled = player.shuffleModeEnabled
             }
         }
     }
@@ -630,6 +683,7 @@ class PlaybackService : MediaLibraryService() {
         const val COMMAND_TOGGLE_FAVORITE = "com.irondigital.spindle.TOGGLE_FAVORITE"
         const val COMMAND_SET_SLEEP_TIMER = "com.irondigital.spindle.SET_SLEEP_TIMER"
         const val COMMAND_CANCEL_SLEEP_TIMER = "com.irondigital.spindle.CANCEL_SLEEP_TIMER"
+        const val COMMAND_SMART_SHUFFLE = "com.irondigital.spindle.SMART_SHUFFLE"
         const val EXTRA_SLEEP_MINUTES = "sleep_minutes"
         const val EXTRA_SLEEP_END_OF_TRACK = "sleep_end_of_track"
 

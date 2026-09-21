@@ -285,6 +285,24 @@ is broken.
 **Playback**
 - Media3 / ExoPlayer, gapless, with proper audio focus
 - Pauses when headphones are unplugged
+- **Shuffle that sounds shuffled** — a uniform shuffle is random, which is not
+  the same as feeling random: on a library where one artist holds forty tracks
+  it regularly puts two of them together, and a whole album dropped into a long
+  queue still arrives in clumps. Spindle groups the queue by artist and deals it
+  out, always from whichever artist has the most left to place, so the big
+  catalogues are spread rather than sprinkled. Measured against uniform
+  shuffling of the same queues, whole albums and a whole shuffled library both
+  come out with no two tracks by the same artist adjacent and none from the same
+  record adjacent, where uniform ordering averages about eleven and three of
+  those. It is on by default and can be switched off in Settings. Optionally it
+  will also bring tracks you have not heard lately toward the front.
+
+  Two honest limits. Where a queue cannot satisfy the rule — forty tracks by one
+  artist among sixty — it gets as close as arithmetic allows and no closer, and
+  nothing is ever dropped or repeated to fake it. And a compilation, one record
+  credited to several artists, is the case the two rules fight over: separating
+  the artists forces a rotation that keeps bringing the shared album back round,
+  so album spacing there is no better than chance. Artist spacing still holds.
 - Optional skip-silence
 - Equalizer, bass boost and stereo widening (see above)
 - One session shared by the app, the notification, the widget, Bluetooth

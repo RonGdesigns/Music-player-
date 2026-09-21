@@ -76,6 +76,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setIncludeNonMusicAudio(enabled: Boolean) = edit { store.setIncludeNonMusicAudio(enabled) }
     fun setMostPlayedSize(size: Int) = edit { store.setMostPlayedSize(size) }
     fun setSkipSilence(enabled: Boolean) = edit { store.setSkipSilence(enabled) }
+    fun setSmartShuffle(enabled: Boolean) = edit { store.setSmartShuffle(enabled) }
+    fun setShuffleFavorsUnheard(enabled: Boolean) = edit { store.setShuffleFavorsUnheard(enabled) }
     fun setNormalization(mode: NormalizationMode) = edit { store.setNormalizationMode(mode) }
     fun setPreamp(db: Int) = edit { store.setNormalizationPreamp(db) }
     fun rescanGain() = edit { app.gains.clearCache() }
@@ -389,6 +391,26 @@ fun SettingsScreen(
                         checked = settings.skipSilence,
                         onCheckedChange = viewModel::setSkipSilence,
                     )
+                    SwitchRow(
+                        title = "Shuffle that sounds shuffled",
+                        description = "A uniform shuffle is random, which is not the " +
+                            "same as feeling random — it regularly puts two tracks by " +
+                            "one artist together. This deals the queue out so that " +
+                            "does not happen, and keeps tracks from one record apart. " +
+                            "Turn it off for a plain random order.",
+                        checked = settings.smartShuffleEnabled,
+                        onCheckedChange = viewModel::setSmartShuffle,
+                    )
+                    if (settings.smartShuffleEnabled) {
+                        SwitchRow(
+                            title = "Favor what you have not heard lately",
+                            description = "Brings tracks you have never played, or " +
+                                "have not played in a while, toward the front of a " +
+                                "shuffle. Everything still gets played.",
+                            checked = settings.shuffleFavorsUnheard,
+                            onCheckedChange = viewModel::setShuffleFavorsUnheard,
+                        )
+                    }
                     SwitchRow(
                         title = "Keep the screen on for lyrics",
                         description = "Only while the lyrics pane is open.",
