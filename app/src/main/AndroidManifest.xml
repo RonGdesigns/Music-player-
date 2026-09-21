@@ -73,6 +73,15 @@
         </activity>
 
         <!--
+          Keeps Genius search and lyric pages inside Spindle, then applies a
+          selectable reading view to song pages. It accepts no external intents.
+        -->
+        <activity
+            android:name=".ui.lyrics.GeniusReaderActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Spindle" />
+
+        <!--
           Exported on purpose: a media session is only reachable by Bluetooth
           remotes, Assistant and Android Auto if the service they bind to is
           exported. This is the configuration Media3 documents.
