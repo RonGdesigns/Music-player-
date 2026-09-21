@@ -53,6 +53,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
@@ -216,6 +219,9 @@ fun NowPlayingScreen(
                 artist = track?.artist ?: "",
                 album = track?.album.orEmpty(),
                 onShowQueue = { pane = PlayerPane.QUEUE },
+                // The reactive mode is the one worth watching, so the plate
+                // behind the transport gets out of its way.
+                seeThrough = settings.visualizerMode == VisualizerMode.AUDIO_REACTIVE,
             )
         }
     }
@@ -315,6 +321,7 @@ private fun TransportBlock(
     album: String,
     onShowQueue: () -> Unit,
     compact: Boolean = false,
+    seeThrough: Boolean = false,
 ) {
     val playback by playerViewModel.playback.collectAsStateWithLifecycle()
 
@@ -324,10 +331,32 @@ private fun TransportBlock(
     var scrubPosition by remember { mutableFloatStateOf(0f) }
     val displayedProgress = if (scrubbing) scrubPosition else playback.progress
 
+    // Ground.Scrim is ninety percent opaque, which across the whole block puts
+    // a near-solid plate over the part of the screen there is most of. In the
+    // reactive mode it is faded instead: full strength behind the title, thin
+    // by the time it reaches the controls, gone underneath them.
+    //
+    // Not dropped altogether, and the reason is measurable rather than a
+    // preference. The artwork palette's accent is only ever brightened, never
+    // dimmed, so a pale cover can push the visualizer to roughly a quarter of
+    // full luminance. Over that, the title reads at about 2.5:1 with no plate
+    // at all against better than 10:1 with this one — the difference between
+    // readable and not. The transport icons are large shapes rather than text,
+    // so they need none of it, which is exactly where it reaches zero.
+    val plate: Brush = if (seeThrough) {
+        Brush.verticalGradient(
+            0f to Ground.Scrim,
+            0.62f to Ground.Deep.copy(alpha = 0.42f),
+            1f to Color.Transparent,
+        )
+    } else {
+        SolidColor(Ground.Scrim)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Ground.Scrim)
+            .background(plate)
             .padding(top = Space.s, bottom = Space.s),
     ) {
         // The gutter is applied per block rather than to the whole column, so
