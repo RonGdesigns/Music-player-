@@ -77,6 +77,7 @@ fun LyricsPane(
     val settings by playerViewModel.settings.collectAsStateWithLifecycle()
 
     var editing by remember { mutableStateOf(false) }
+    var findTimingAfterSave by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val listState = rememberLazyListState()
 
@@ -86,6 +87,7 @@ fun LyricsPane(
     val searchGenius = {
         track?.let { current ->
             editing = true
+            findTimingAfterSave = true
             context.startActivity(
                 GeniusReaderActivity.intent(
                     context,
@@ -129,7 +131,10 @@ fun LyricsPane(
                 hasTrack = track != null,
                 lookupEnabled = settings.lyricsLookupEnabled,
                 lookup = lookup,
-                onAdd = { editing = true },
+                onAdd = {
+                    findTimingAfterSave = false
+                    editing = true
+                },
                 onLookUp = { track?.let(playerViewModel::lookUpLyrics) },
                 onEnableLookup = { track?.let(playerViewModel::enableLookupAndSearch) },
                 onSearchGenius = searchGenius,
@@ -189,7 +194,10 @@ fun LyricsPane(
                         source = lyrics.source,
                         synced = lyrics.synced,
                         lookup = lookup,
-                        onEdit = { editing = true },
+                        onEdit = {
+                            findTimingAfterSave = false
+                            editing = true
+                        },
                         // Offered even when lyrics are already showing: the
                         // ones in a file are not always the right ones, and
                         // before this there was no way past them.
@@ -223,10 +231,18 @@ fun LyricsPane(
         track?.let { current ->
             EditLyricsDialog(
                 initial = lyrics.raw,
-                onDismiss = { editing = false },
-                onSave = { text ->
-                    playerViewModel.saveLyrics(current, text)
+                onDismiss = {
                     editing = false
+                    findTimingAfterSave = false
+                },
+                onSave = { text ->
+                    if (findTimingAfterSave) {
+                        playerViewModel.saveLyricsAndFindTiming(current, text)
+                    } else {
+                        playerViewModel.saveLyrics(current, text)
+                    }
+                    editing = false
+                    findTimingAfterSave = false
                 },
             )
         }
