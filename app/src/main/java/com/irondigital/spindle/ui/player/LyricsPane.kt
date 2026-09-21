@@ -34,12 +34,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.irondigital.spindle.data.lyrics.Lyrics
 import com.irondigital.spindle.data.lyrics.LyricsSource
+import com.irondigital.spindle.data.lyrics.GeniusSearch
 import com.irondigital.spindle.ui.LyricsLookupState
 import com.irondigital.spindle.ui.PlayerViewModel
 import com.irondigital.spindle.ui.theme.Ground
@@ -74,7 +76,21 @@ fun LyricsPane(
     val settings by playerViewModel.settings.collectAsStateWithLifecycle()
 
     var editing by remember { mutableStateOf(false) }
+    val uriHandler = LocalUriHandler.current
     val listState = rememberLazyListState()
+
+    // Genius exposes search results publicly, but its supported API does not
+    // supply the lyric body. Open its candidate list, then leave the editor
+    // waiting when the user returns so copied lyrics can be pasted directly.
+    val searchGenius = {
+        track?.let { current ->
+            editing = true
+            uriHandler.openUri(
+                GeniusSearch.url(current.title, current.artist, current.displayName)
+            )
+        }
+        Unit
+    }
 
     // Derived rather than computed from an unwrapped position.
     //
@@ -112,6 +128,7 @@ fun LyricsPane(
                 onAdd = { editing = true },
                 onLookUp = { track?.let(playerViewModel::lookUpLyrics) },
                 onEnableLookup = { track?.let(playerViewModel::enableLookupAndSearch) },
+                onSearchGenius = searchGenius,
             )
         } else {
             LazyColumn(
@@ -177,6 +194,7 @@ fun LyricsPane(
                         } else {
                             null
                         },
+                        onSearchGenius = searchGenius,
                     )
                 }
             }
@@ -277,6 +295,7 @@ private fun NoLyrics(
     onAdd: () -> Unit,
     onLookUp: () -> Unit,
     onEnableLookup: () -> Unit,
+    onSearchGenius: () -> Unit,
 ) {
     Box(
         modifier = Modifier
@@ -380,6 +399,22 @@ private fun NoLyrics(
                         color = Steel.Dim,
                     )
                 }
+                Spacer(Modifier.height(Space.m))
+                Text(
+                    text = "Search Genius",
+                    style = SpindleType.RowTitle,
+                    color = Lamp.Bright,
+                    modifier = Modifier
+                        .clickable(onClick = onSearchGenius)
+                        .padding(vertical = Space.xs),
+                )
+                Spacer(Modifier.height(Space.xs))
+                Text(
+                    text = "Opens several Genius matches. Copy the right lyrics, then " +
+                        "return here to paste and save them.",
+                    style = SpindleType.Data,
+                    color = Steel.Dim,
+                )
             }
         }
     }
@@ -392,6 +427,7 @@ private fun LyricsSourceNote(
     lookup: LyricsLookupState,
     onEdit: () -> Unit,
     onLookUp: (() -> Unit)?,
+    onSearchGenius: () -> Unit,
 ) {
     val description = when (source) {
         LyricsSource.USER -> "Added by you"
@@ -428,6 +464,14 @@ private fun LyricsSourceNote(
                         .padding(vertical = Space.xs),
                 )
             }
+            Text(
+                text = "Search Genius",
+                style = SpindleType.Secondary,
+                color = Lamp.Bright,
+                modifier = Modifier
+                    .clickable(onClick = onSearchGenius)
+                    .padding(vertical = Space.xs),
+            )
         }
     }
 }
