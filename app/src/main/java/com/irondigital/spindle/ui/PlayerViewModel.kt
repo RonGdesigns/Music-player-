@@ -345,6 +345,25 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /** Saves copied Genius text, then borrows LRCLIB timing when it exists. */
+    fun saveLyricsAndFindTiming(track: Track, content: String) {
+        viewModelScope.launch {
+            app.lyrics.saveOverride(track, content)
+            _lyrics.value = app.lyrics.load(track)
+
+            _lyricsLookup.value = LyricsLookupState.Searching
+            _lyricsLookup.value = when (val result = app.lyrics.addOnlineTimingIfAvailable(track)) {
+                is LyricsLookup.Found -> {
+                    _lyrics.value = app.lyrics.load(track)
+                    LyricsLookupState.Idle
+                }
+                // A timing miss is not a lyrics miss: the Genius words remain.
+                LyricsLookup.NotFound -> LyricsLookupState.Idle
+                is LyricsLookup.Failed -> LyricsLookupState.Failed(result.reason)
+            }
+        }
+    }
+
     /**
      * Asks the online database for this track's lyrics.
      *
