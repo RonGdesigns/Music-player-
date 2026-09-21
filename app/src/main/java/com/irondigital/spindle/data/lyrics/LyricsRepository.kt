@@ -118,6 +118,42 @@ class LyricsRepository(
         )
     }
 
+    /**
+     * Looks specifically for timing after the user has supplied the words.
+     *
+     * Unlike [lookUpOnline], this never records a miss and never replaces the
+     * user's text with an unsynchronised result. That distinction matters for
+     * leaked and unreleased songs: Genius may have the words while LRCLIB has
+     * no entry at all. In that case the words the user just pasted must remain.
+     */
+    suspend fun addOnlineTimingIfAvailable(track: Track): LyricsLookup =
+        withContext(Dispatchers.IO) {
+            when (
+                val result = onlineClient.fetch(
+                    title = track.title,
+                    artist = track.artist,
+                    album = track.album,
+                    durationMs = track.durationMs,
+                )
+            ) {
+                is LyricsLookup.Found -> {
+                    if (result.synced) {
+                        store(
+                            track = track,
+                            content = result.lrc,
+                            synced = true,
+                            source = LyricsOverride.SOURCE_ONLINE,
+                        )
+                        result
+                    } else {
+                        LyricsLookup.NotFound
+                    }
+                }
+                LyricsLookup.NotFound -> LyricsLookup.NotFound
+                is LyricsLookup.Failed -> result
+            }
+        }
+
     suspend fun clearOverride(track: Track) = lyricsDao.delete(track.mediaId)
 
     /**
