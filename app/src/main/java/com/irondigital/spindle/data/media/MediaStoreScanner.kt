@@ -71,8 +71,9 @@ class MediaStoreScanner(private val context: Context) {
             val sortOrder = "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC"
 
             val out = ArrayList<Track>(512)
-            context.contentResolver.query(collection, projection, selection, null, sortOrder)
-                ?.use { cursor -> readAll(cursor, collection, minDurationMs, excludedFolders, out) }
+            val cursor = context.contentResolver.query(collection, projection, selection, null, sortOrder)
+                ?: throw java.io.IOException("The audio provider did not return a library")
+            cursor.use { readAll(it, collection, minDurationMs, excludedFolders, out) }
             out
         }
 

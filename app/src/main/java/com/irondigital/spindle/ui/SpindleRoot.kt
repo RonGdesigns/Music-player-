@@ -14,8 +14,20 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
+import com.irondigital.spindle.ui.personal.*
+import com.irondigital.spindle.ui.theme.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +64,8 @@ import com.irondigital.spindle.ui.theme.SpindleTheme
  * typed stack is both smaller and harder to get wrong.
  */
 sealed interface Destination {
+    data class Workspace(val section: String) : Destination
+    data class CustomMix(val id: String) : Destination
     data object Library : Destination
     data object Settings : Destination
     data object Stats : Destination
@@ -97,6 +111,8 @@ private fun MainStack(
     val backStack: SnapshotStateList<Destination> =
         remember { listOf<Destination>(Destination.Library).toMutableStateList() }
     var nowPlayingOpen by rememberSaveable { mutableStateOf(false) }
+    var mainSection by rememberSaveable { mutableStateOf("Home") }
+    val personal: PersonalViewModel = viewModel()
 
     /**
      * Holds each screen's own state — scroll position above all — for as long
@@ -117,6 +133,7 @@ private fun MainStack(
     fun keyFor(index: Int, destination: Destination) = "$index:$destination"
 
     fun push(destination: Destination) {
+        if (destination == Destination.Library) { mainSection = "Library"; return }
         backStack.add(destination)
     }
 
@@ -131,11 +148,17 @@ private fun MainStack(
     BackHandler(enabled = nowPlayingOpen) { nowPlayingOpen = false }
     BackHandler(enabled = !nowPlayingOpen && backStack.size > 1) { pop() }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val wide = maxWidth >= 840.dp
+    // Dispose the obscured surface so keyboard and accessibility focus stay in the player.
+    if (!nowPlayingOpen) {
+    Row(Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.weight(1f)) {
         Box(modifier = Modifier.weight(1f)) {
             stateHolder.SaveableStateProvider(keyFor(backStack.lastIndex, current)) {
                 when (val destination = current) {
                     Destination.Library -> LibraryScreen(
+                        section = mainSection, onSectionChange = { mainSection = it },
                         libraryViewModel = libraryViewModel,
                         playerViewModel = playerViewModel,
                         onOpen = ::push,
@@ -143,6 +166,17 @@ private fun MainStack(
                         onOpenNowPlaying = { nowPlayingOpen = true },
                     )
 
+                    is Destination.Workspace -> WorkspaceScreen(destination.section, playerViewModel, libraryViewModel, ::pop, ::push)
+                    is Destination.CustomMix -> {
+                        val data by personal.data.collectAsStateWithLifecycle()
+                        val all by libraryViewModel.tracks.collectAsStateWithLifecycle()
+                        val favorites by personal.favorites.collectAsStateWithLifecycle()
+                        val stats by personal.stats.collectAsStateWithLifecycle()
+                        val rule = data.mixes.firstOrNull { it.id == destination.id }
+                        val selected = remember(rule, all, favorites, stats) { rule?.select(all, favorites, stats, System.currentTimeMillis()).orEmpty() }
+                        TrackListScreen(rule?.name ?: "Smart playlist", "${selected.size} matching tracks", selected.firstOrNull()?.artUri?.toString(),
+                            selected, playerViewModel, libraryViewModel, ::pop)
+                    }
                     Destination.Settings -> SettingsScreen(
                         onBack = ::pop,
                         onRescan = libraryViewModel::refresh,
@@ -229,7 +263,7 @@ private fun MainStack(
                         TrackListScreen(
                             title = destination.playlist.title,
                             subtitle = destination.playlist.subtitle,
-                            artUri = tracks.firstOrNull()?.albumArtUri?.toString(),
+                            artUri = tracks.firstOrNull()?.artUri?.toString(),
                             tracks = tracks,
                             playerViewModel = playerViewModel,
                             libraryViewModel = libraryViewModel,
@@ -248,7 +282,7 @@ private fun MainStack(
                         TrackListScreen(
                             title = destination.name,
                             subtitle = null,
-                            artUri = tracks.firstOrNull()?.albumArtUri?.toString(),
+                            artUri = tracks.firstOrNull()?.artUri?.toString(),
                             tracks = tracks,
                             playerViewModel = playerViewModel,
                             libraryViewModel = libraryViewModel,
@@ -265,10 +299,21 @@ private fun MainStack(
         // The persistent band. One action continuously available, and it never
         // accumulates a second and a third — tapping it opens the player, which
         // is where every other action lives.
-        MiniPlayerBar(
-            playerViewModel = playerViewModel,
-            onOpen = { nowPlayingOpen = true },
-        )
+        if (!wide) MiniPlayerBar(playerViewModel = playerViewModel, onOpen = { nowPlayingOpen = true })
+        if (current == Destination.Library) NavigationBar(containerColor = Ground.Deep) {
+            listOf("Home", "Library", "Search").forEach { section ->
+                NavigationBarItem(selected = mainSection == section, onClick = { mainSection = section },
+                    icon = { Icon(when(section) { "Home" -> Icons.Filled.Home; "Library" -> Icons.Filled.LibraryMusic; else -> Icons.Filled.Search }, null) },
+                    label = { Text(section) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = Lamp.Bright,
+                        selectedTextColor = Lamp.Bright, indicatorColor = Ground.Plate, unselectedIconColor = Steel.Bright, unselectedTextColor = Steel.Bright))
+            }
+        } else Spacer(Modifier.navigationBarsPadding())
+    }
+    if(wide) Box(Modifier.width(380.dp).fillMaxHeight()) {
+        NowPlayingScreen(playerViewModel, libraryViewModel, onCollapse = { nowPlayingOpen = false }, embedded = true)
+    }
+    }
+    }
     }
 
     // Above every destination: a shared file can arrive whatever screen is open.
@@ -288,6 +333,9 @@ private fun MainStack(
             libraryViewModel = libraryViewModel,
             onCollapse = { nowPlayingOpen = false },
         )
+    }
+    Box(Modifier.fillMaxSize().navigationBarsPadding().padding(bottom = 12.dp), contentAlignment = Alignment.BottomCenter) {
+        PersonalFeedback(personal, playerViewModel)
     }
 }
 
@@ -313,6 +361,16 @@ private fun LibraryPermissionGate(
         )
     }
     var asked by rememberSaveable { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, permission) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                granted = ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -347,8 +405,13 @@ private fun LibraryPermissionGate(
         PermissionPrompt(
             alreadyAsked = asked,
             onRequest = {
-                asked = true
-                launcher.launch(permission)
+                if (asked) {
+                    context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        android.net.Uri.parse("package:${context.packageName}")))
+                } else {
+                    asked = true
+                    launcher.launch(permission)
+                }
             },
         )
     }

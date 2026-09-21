@@ -48,6 +48,8 @@ android {
         buildConfig = true
         compose = true
     }
+    testOptions { unitTests.isIncludeAndroidResources = true }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -95,9 +97,12 @@ dependencies {
     implementation("dev.ffmpegkit-maintained:ffmpeg-kit-audio:8.1.7")
 
     testImplementation(libs.junit)
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     // android.json is a stub that throws on the JVM, so the backup codec's
     // round-trip is tested against the real implementation.
     testImplementation("org.json:json:20240303")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

@@ -4,8 +4,8 @@ An offline music player for Android, built around the thing Samsung Music
 removed: **a home-screen widget that shows the now-playing queue and lets you
 reach into it.**
 
-Everything is local by default. No account, no sync — the
-app has no internet permission at all. Your library, your play counts and your
+Everything is local by default. No account or sync. Internet access is used
+for link downloads you start and online lyrics lookup you can enable. Your library, your play counts and your
 playlists never leave the device.
 
 ---
@@ -29,6 +29,22 @@ It survives process death. The queue is persisted on every playback change, so
 the play button on the widget works even if the app has not been in memory for
 a day — the service restores the queue, paused and at the saved position, and
 starts from there.
+
+## Listening workspace
+
+Home now leads with Continue listening, pinned collections, saved sessions, and recently added albums. Home, Library, and Search are separate main destinations. Wide windows show the library beside the player. Now Playing uses a bounded cover with a typographic fallback; Queue has a compact transport, drag handles, and an accessible move/remove menu.
+
+- **Listening sessions:** save multiple named queues with position, shuffle order, and repeat mode. Resume a session from Home or Your listening. Changes while listening update the active session; choosing a new library queue detaches it. Missing files are omitted on resume, and a session with no available tracks reports an error.
+- **Pins:** add albums, playlists, and folders to Home from Manage beside Pinned. Unpin without changing the collection itself.
+- **Custom smart playlists:** combine favorites, days since last play, days since added, and maximum track length. Preview the matching count and choose title, recently added, or least-played order.
+- **Bookmarks:** name a moment from the player’s Listening tools and return to it from Home → Bookmarks.
+- **A–B repeat:** enter start/end seconds or capture the current playhead. Loops must span at least half a second, stay within one track, and clear when the track changes. Looping runs in the playback service and works with the screen closed.
+- **Custom covers:** choose an image for a track or album in Listening tools. Track covers take precedence over album covers. Reset restores the original cover; the audio file is never rewritten. Images are copied into app-owned storage, decoded at a bounded size, and do not depend on a temporary picker permission.
+- **Widget appearance:** choose queue or artwork emphasis, then compact or comfortable density. A layout preview appears before Apply. The preference applies to all Spindle widgets; small sizes retain transport controls.
+
+These additions are local to this installation. The existing JSON library backup still covers play history, favorites, playlists, and metadata corrections; it does not yet package listening sessions, pins, bookmarks, smart rules, or custom-cover image files for transfer to a different phone.
+
+See [design decisions](docs/listening-design.md) and the [feature verification record](docs/listening-verification.md) for evidence and device-specific limits.
 
 ## Features
 
@@ -123,7 +139,7 @@ Resolved in priority order:
    from.
 4. **An online lookup, off by default.** When switched on, a track with no
    lyrics of its own is looked up in LRCLIB, an open database with no account
-   and no key. What leaves the device is that track's title, artist and length —
+   and no key. What leaves the device is that track's title, artist, album, and length —
    nothing else — and whatever comes back is saved on the phone, so a track is
    only ever looked up once. A definite "no lyrics for this" is remembered too;
    a network failure is not, because one busy moment on someone else's server
@@ -236,7 +252,7 @@ does not cover a factory reset with backup switched off, a move to a phone from
 a different maker, or a reinstall after clearing data — and the play counts are
 the entire reason Most Played means anything.
 
-The file is keyed on the *recording* — artist, title and length rounded to the
+The file is keyed on the original file metadata — artist, title and length rounded to the
 second — not on MediaStore ids, because those ids do not survive a single one of
 the events this exists for. A restore merges rather than overwrites: where a
 track has been played on both phones the higher count wins, and a playlist whose
@@ -269,6 +285,24 @@ is broken.
 **Playback**
 - Media3 / ExoPlayer, gapless, with proper audio focus
 - Pauses when headphones are unplugged
+- **Shuffle that sounds shuffled** — a uniform shuffle is random, which is not
+  the same as feeling random: on a library where one artist holds forty tracks
+  it regularly puts two of them together, and a whole album dropped into a long
+  queue still arrives in clumps. Spindle groups the queue by artist and deals it
+  out, always from whichever artist has the most left to place, so the big
+  catalogues are spread rather than sprinkled. Measured against uniform
+  shuffling of the same queues, whole albums and a whole shuffled library both
+  come out with no two tracks by the same artist adjacent and none from the same
+  record adjacent, where uniform ordering averages about eleven and three of
+  those. It is on by default and can be switched off in Settings. Optionally it
+  will also bring tracks you have not heard lately toward the front.
+
+  Two honest limits. Where a queue cannot satisfy the rule — forty tracks by one
+  artist among sixty — it gets as close as arithmetic allows and no closer, and
+  nothing is ever dropped or repeated to fake it. And a compilation, one record
+  credited to several artists, is the case the two rules fight over: separating
+  the artists forces a rotation that keeps bringing the shared album back round,
+  so album spacing there is no better than chance. Artist spacing still holds.
 - Optional skip-silence
 - Equalizer, bass boost and stereo widening (see above)
 - One session shared by the app, the notification, the widget, Bluetooth
@@ -416,3 +450,17 @@ measured one.
 ## License
 
 Not yet chosen. Bundled typefaces are SIL OFL 1.1.
+
+### Reliability update
+
+Backup version 2 keeps original song identity separate from display corrections,
+so renaming a song in Spindle does not prevent restoring it on another phone.
+Version 1 backups remain readable and can match original or current display
+metadata. An old backup that omitted the original title or artist cannot
+reconstruct those missing values; unmatched entries remain reported instead of
+being assigned to a different song.
+
+The widget follows the actual shuffle order. Queue restoration retains shuffle,
+repeat, position, and available artwork metadata. Unavailable queue entries stay
+visible, and commands from an outdated queue are ignored until the current rows
+arrive. Add music in the library header offers audio-file import and link import.

@@ -61,6 +61,13 @@ data class Settings(
     /** Share of a track that must be heard before it counts as a play. */
     val playThresholdPercent: Int = 50,
     val skipSilence: Boolean = false,
+    /**
+     * Order a shuffle so it sounds shuffled — no two tracks by one artist in a
+     * row, records kept apart — rather than uniformly at random.
+     */
+    val smartShuffleEnabled: Boolean = true,
+    /** Bias a shuffle toward what has not been played lately. */
+    val shuffleFavorsUnheard: Boolean = false,
     val equalizerEnabled: Boolean = false,
     /** A device preset index, or -1 for the user's own curve in [equalizerBands]. */
     val equalizerPreset: Int = -1,
@@ -74,7 +81,7 @@ data class Settings(
     val keepScreenOnWithLyrics: Boolean = true,
     /**
      * Look lyrics up online when a track has none locally. Off until asked
-     * for: it is the only thing in the app that sends anything anywhere.
+     * for. Requests send track metadata to the lyrics provider.
      */
     val lyricsLookupEnabled: Boolean = false,
     val librarySort: LibrarySort = LibrarySort.TITLE,
@@ -93,6 +100,8 @@ class SettingsStore(private val context: Context) {
             countPlaysEnabled = p[Keys.COUNT_PLAYS] ?: true,
             playThresholdPercent = p[Keys.PLAY_THRESHOLD] ?: 50,
             skipSilence = p[Keys.SKIP_SILENCE] ?: false,
+            smartShuffleEnabled = p[Keys.SMART_SHUFFLE] ?: true,
+            shuffleFavorsUnheard = p[Keys.SHUFFLE_UNHEARD] ?: false,
             equalizerEnabled = p[Keys.EQ_ENABLED] ?: false,
             equalizerPreset = p[Keys.EQ_PRESET] ?: -1,
             equalizerBands = p[Keys.EQ_BANDS]?.let(::decodeBands) ?: emptyList(),
@@ -117,6 +126,8 @@ class SettingsStore(private val context: Context) {
     suspend fun setCountPlaysEnabled(enabled: Boolean) = put(Keys.COUNT_PLAYS, enabled)
     suspend fun setPlayThresholdPercent(percent: Int) = put(Keys.PLAY_THRESHOLD, percent.coerceIn(10, 95))
     suspend fun setSkipSilence(enabled: Boolean) = put(Keys.SKIP_SILENCE, enabled)
+    suspend fun setSmartShuffle(enabled: Boolean) = put(Keys.SMART_SHUFFLE, enabled)
+    suspend fun setShuffleFavorsUnheard(enabled: Boolean) = put(Keys.SHUFFLE_UNHEARD, enabled)
     suspend fun setEqualizerEnabled(enabled: Boolean) = put(Keys.EQ_ENABLED, enabled)
     suspend fun setEqualizerPreset(index: Int) = put(Keys.EQ_PRESET, index)
     suspend fun setEqualizerBands(levelsMb: List<Int>) = put(Keys.EQ_BANDS, encodeBands(levelsMb))
@@ -141,6 +152,8 @@ class SettingsStore(private val context: Context) {
         val COUNT_PLAYS = booleanPreferencesKey("count_plays")
         val PLAY_THRESHOLD = intPreferencesKey("play_threshold_percent")
         val SKIP_SILENCE = booleanPreferencesKey("skip_silence")
+        val SMART_SHUFFLE = booleanPreferencesKey("smart_shuffle")
+        val SHUFFLE_UNHEARD = booleanPreferencesKey("shuffle_favors_unheard")
         val EQ_ENABLED = booleanPreferencesKey("equalizer_enabled")
         val EQ_PRESET = intPreferencesKey("equalizer_preset")
         val EQ_BANDS = stringPreferencesKey("equalizer_bands")

@@ -33,6 +33,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val app = application.spindle
 
     val scanState: StateFlow<LibraryRepository.ScanState> = app.library.scanState
+    val scanError = app.library.scanError
 
     private val _search = MutableStateFlow("")
     val search: StateFlow<String> = _search.asStateFlow()

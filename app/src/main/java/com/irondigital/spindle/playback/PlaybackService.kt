@@ -10,10 +10,13 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
+import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.source.ShuffleOrder
 import androidx.media3.session.CommandButton
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
@@ -26,6 +29,9 @@ import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.irondigital.spindle.data.personal.availableSession
+import com.irondigital.spindle.data.personal.LoopRegion
+import com.google.common.util.concurrent.SettableFuture
 import com.irondigital.spindle.MainActivity
 import com.irondigital.spindle.R
 import com.irondigital.spindle.data.settings.Settings
@@ -43,6 +49,8 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * The single owner of playback.
@@ -69,8 +77,20 @@ class PlaybackService : MediaLibraryService() {
     private var sleepTimerJob: Job? = null
     private var sleepAtEndOfTrack = false
 
-    /** Coalesces the burst of player callbacks a single action produces. */
-    private var snapshotJob: Job? = null
+    private var shuffleWasEnabled = false
+
+    private var favoriteIds: Set<String> = emptySet()
+    private val favoriteMutex = Mutex()
+    private val snapshotMutex = Mutex()
+    private val widgetUpdates = PlaybackUpdateQueue(serviceScope,
+        onFailure = { android.util.Log.w("SpindleWidget", "Widget update failed", it) },
+        update = { NowPlayingWidget.refresh(applicationContext) })
+    private val snapshotUpdates = PlaybackUpdateQueue(serviceScope,
+        onFailure = { android.util.Log.w("SpindleWidget", "Playback snapshot failed", it) },
+        update = { writeSnapshot() })
+    private var restoring = true
+    private var activeSessionId: String? = null
+    private var loop: LoopRegion? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -122,6 +142,14 @@ class PlaybackService : MediaLibraryService() {
             .setSessionActivity(sessionActivity)
             .build()
 
+        // Observe changes from every entry point, including the app's library,
+        // notification, car controls, and backup restore.
+        app.collections.favoriteIdSet.onEach { ids ->
+            favoriteIds = ids
+            refreshFavoriteButton()
+            publishSnapshot()
+        }.launchIn(serviceScope)
+
         app.settingsStore.settings
             .onEach { updated ->
                 val previous = settings
@@ -141,7 +169,20 @@ class PlaybackService : MediaLibraryService() {
             .launchIn(serviceScope)
 
         serviceScope.launch {
-            restoreQueueIfEmpty()
+            while (isActive) {
+                delay(80)
+                val region = loop ?: continue
+                if (region.mediaId != player.currentMediaItem?.mediaId) { loop = null; publishSnapshot() }
+                else if (region.shouldSeek(player.currentMediaItem?.mediaId, player.currentPosition, player.isPlaying)) player.seekTo(region.startMs)
+            }
+        }
+        serviceScope.launch {
+            try {
+                restoreQueueIfEmpty()
+            } finally {
+                restoring = false
+                publishSnapshot()
+            }
             // Android Auto can be the first surface that starts the app after
             // boot, so make sure the browse tree has current MediaStore rows.
             if (app.library.tracks.value.isEmpty()) {
@@ -211,9 +252,13 @@ class PlaybackService : MediaLibraryService() {
         ): MediaSession.ConnectionResult {
             val sessionCommands =
                 MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
+                .add(SessionCommand(COMMAND_SAVE_SESSION, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_RESUME_SESSION, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_SET_LOOP, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_TOGGLE_FAVORITE, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_SET_SLEEP_TIMER, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_CANCEL_SLEEP_TIMER, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_SMART_SHUFFLE, Bundle.EMPTY))
                 .build()
 
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
@@ -298,6 +343,8 @@ class PlaybackService : MediaLibraryService() {
             startIndex: Int,
             startPositionMs: Long,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            activeSessionId = null
+            loop = null
             if (mediaItems.size == 1) {
                 val requestedId = mediaItems.first().mediaId
                 val queue = autoLibrary.queueForSelection(requestedId)
@@ -333,17 +380,76 @@ class PlaybackService : MediaLibraryService() {
             customCommand: SessionCommand,
             args: Bundle,
         ): ListenableFuture<SessionResult> {
+            if (customCommand.customAction in setOf(COMMAND_SAVE_SESSION, COMMAND_RESUME_SESSION, COMMAND_SET_LOOP)
+                && controller.packageName != packageName) return Futures.immediateFuture(SessionResult(SessionError.ERROR_PERMISSION_DENIED))
             when (customCommand.customAction) {
+                COMMAND_SAVE_SESSION, COMMAND_RESUME_SESSION -> {
+                    val result = SettableFuture.create<SessionResult>()
+                    serviceScope.launch {
+                        try {
+                            val app = spindle
+                            val id = args.getString("id") ?: error("Missing session")
+                            if (customCommand.customAction == COMMAND_SAVE_SESSION) {
+                                val snapshot = writeSnapshot()
+                                app.listening.saveSession(id, args.getString("name").orEmpty(), snapshot)
+                                activeSessionId = id
+                            } else {
+                                writeSnapshot()
+                                if (app.library.tracks.value.isEmpty()) app.library.refresh()
+                                val saved = app.listening.data.first().sessions.firstOrNull { it.id == id }
+                                    ?: error("That session is no longer available")
+                                val snapshot = saved.snapshot.availableSession(app.library.tracks.value.map { it.mediaId }.toSet())
+                                require(snapshot.queue.isNotEmpty()) { "The tracks in this session are unavailable" }
+                                loop = null
+                                applySnapshot(snapshot)
+                                activeSessionId = id
+                                app.listening.update { it.copy(activeSessionId = id) }
+                                player.play()
+                                publishSnapshot()
+                            }
+                            result.set(SessionResult(SessionResult.RESULT_SUCCESS))
+                        } catch (error: Exception) {
+                            if (error is kotlinx.coroutines.CancellationException) { result.cancel(false); throw error }
+                            result.set(SessionResult(SessionError.ERROR_BAD_VALUE, Bundle().apply { putString("message", error.message) }))
+                        }
+                    }
+                    return result
+                }
+                COMMAND_SET_LOOP -> {
+                    val start = args.getLong("start", -1)
+                    val end = args.getLong("end", -1)
+                    val proposed = LoopRegion(args.getString("mediaId").orEmpty(), start, end)
+                    if (start < 0) loop = null
+                    else if (proposed.validFor(player.currentMediaItem?.mediaId, player.duration)) {
+                        loop = proposed
+                        player.seekTo(start)
+                    } else return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+                    publishSnapshot()
+                }
                 COMMAND_TOGGLE_FAVORITE -> {
                     val mediaId = player.currentMediaItem?.mediaId
                     if (mediaId != null) {
+                        val result = SettableFuture.create<SessionResult>()
                         serviceScope.launch {
-                            val app = spindle
-                            val current = app.collections.favoriteIdSet.first()
-                            app.collections.setFavorite(mediaId, mediaId !in current)
-                            session.setCustomLayout(controller, ImmutableList.of(favoriteButton()))
-                            publishSnapshot(immediate = true)
+                            try {
+                                favoriteMutex.withLock {
+                                    val current = spindle.collections.favoriteIdSet.first()
+                                    val selected = mediaId !in current
+                                    spindle.collections.setFavorite(mediaId, selected)
+                                    favoriteIds = if (selected) current + mediaId else current - mediaId
+                                    refreshFavoriteButton()
+                                    publishSnapshot()
+                                }
+                                result.set(SessionResult(SessionResult.RESULT_SUCCESS))
+                            } catch (error: Exception) {
+                                if (error is kotlinx.coroutines.CancellationException) {
+                                    result.cancel(false)
+                                    throw error
+                                }
+                                result.set(SessionResult(SessionError.ERROR_UNKNOWN))
+                            }
                         }
+                        return result
                     }
                 }
 
@@ -354,16 +460,27 @@ class PlaybackService : MediaLibraryService() {
                 }
 
                 COMMAND_CANCEL_SLEEP_TIMER -> cancelSleepTimer()
+
+                COMMAND_SMART_SHUFFLE -> applySmartShuffle()
             }
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
         }
     }
 
-    private fun favoriteButton(): CommandButton = CommandButton.Builder()
-        .setDisplayName("Favorite")
-        .setIconResId(R.drawable.ic_notification_favorite)
-        .setSessionCommand(SessionCommand(COMMAND_TOGGLE_FAVORITE, Bundle.EMPTY))
-        .build()
+    private fun favoriteButton(): CommandButton {
+        val state = FavoriteButtonState.forTrack(player.currentMediaItem?.mediaId, favoriteIds)
+        return CommandButton.Builder()
+            .setDisplayName(state.label)
+            .setIconResId(state.iconRes)
+            .setEnabled(state.enabled)
+            .setSessionCommand(SessionCommand(COMMAND_TOGGLE_FAVORITE, Bundle.EMPTY))
+            .build()
+    }
+
+    private fun refreshFavoriteButton() {
+        // Global layout updates also reach notification and lock-screen controllers.
+        mediaSession?.setCustomLayout(ImmutableList.of(favoriteButton()))
+    }
 
     // --------------------------------------------------------- sleep timer
 
@@ -407,10 +524,53 @@ class PlaybackService : MediaLibraryService() {
         sleepAtEndOfTrack = false
     }
 
+    // ------------------------------------------------------------- shuffle
+
+    /**
+     * Replaces the player's own shuffle ordering with one that sounds shuffled.
+     *
+     * Done through ExoPlayer's ShuffleOrder rather than by rewriting the queue,
+     * and that is the whole reason this works cleanly: the shuffle flag stays
+     * the player's, so the button, the widget, the notification and the car all
+     * read the same state they always did, and turning shuffle off restores the
+     * original order for free because the queue itself was never touched.
+     */
+    private fun applySmartShuffle() {
+        if (!settings.smartShuffleEnabled) return
+
+        val count = player.mediaItemCount
+        // Nothing to arrange, and nowhere to put it.
+        if (count < 3) return
+
+        val stats = spindle.playStats.value
+        val candidates = (0 until count).map { index ->
+            val item = player.getMediaItemAt(index)
+            ShuffleCandidate(
+                artist = item.mediaMetadata.artist?.toString().orEmpty(),
+                album = item.mediaMetadata.albumTitle?.toString().orEmpty(),
+                lastPlayedAt = stats[item.mediaId]?.lastPlayedAt ?: 0L,
+            )
+        }
+
+        val order = SmartShuffle.order(
+            candidates = candidates,
+            // Whatever is playing stays playing; only what comes after it moves.
+            startIndex = player.currentMediaItemIndex,
+            favorUnheard = settings.shuffleFavorsUnheard,
+        )
+
+        runCatching {
+            player.setShuffleOrder(ShuffleOrder.DefaultShuffleOrder(order, System.nanoTime()))
+        }
+    }
+
     // ------------------------------------------------------------ snapshot
 
     private inner class PlayerWatcher : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
+            if (events.containsAny(Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_TIMELINE_CHANGED)) {
+                refreshFavoriteButton()
+            }
             if (events.containsAny(
                     Player.EVENT_MEDIA_ITEM_TRANSITION,
                     Player.EVENT_IS_PLAYING_CHANGED,
@@ -430,25 +590,28 @@ class PlaybackService : MediaLibraryService() {
             if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED)) {
                 effects.apply()
             }
+
+            // Only on the way on. Re-ordering every time the flag is touched
+            // would reshuffle the queue under someone who just turned it off.
+            if (events.contains(Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED)) {
+                if (player.shuffleModeEnabled && !shuffleWasEnabled) applySmartShuffle()
+                shuffleWasEnabled = player.shuffleModeEnabled
+            }
         }
     }
 
     /**
-     * One action — pressing next, say — fires half a dozen player callbacks.
-     * Debouncing means one disk write and one widget update instead of six.
+     * Never cancel a write or refresh in progress. Bursts retain one pending
+     * update, which reads the latest player state as soon as the active write ends.
      */
-    private fun publishSnapshot(immediate: Boolean = false) {
-        snapshotJob?.cancel()
-        snapshotJob = serviceScope.launch {
-            if (!immediate) delay(SNAPSHOT_DEBOUNCE_MS)
-            writeSnapshot()
-        }
+    private fun publishSnapshot() {
+        if (restoring) return
+        snapshotUpdates.request()
     }
 
-    private suspend fun writeSnapshot() {
+    private suspend fun writeSnapshot(): PlaybackSnapshot = snapshotMutex.withLock {
         val app = spindle
         val currentItem = player.currentMediaItem
-        val favorites = runCatching { app.collections.favoriteIdSet.first() }.getOrDefault(emptySet())
 
         val queue = ArrayList<QueueEntry>(player.mediaItemCount)
         for (i in 0 until player.mediaItemCount) {
@@ -458,6 +621,9 @@ class PlaybackService : MediaLibraryService() {
                 title = item.mediaMetadata.title?.toString().orEmpty(),
                 artist = item.mediaMetadata.artist?.toString().orEmpty(),
                 durationMs = item.mediaMetadata.durationMs ?: 0L,
+                album = item.mediaMetadata.albumTitle?.toString().orEmpty(),
+                artUri = item.mediaMetadata.artworkUri?.toString(),
+                uri = item.localConfiguration?.uri?.toString(),
             )
         }
 
@@ -474,13 +640,35 @@ class PlaybackService : MediaLibraryService() {
             currentIndex = player.currentMediaItemIndex.takeIf { player.mediaItemCount > 0 } ?: -1,
             shuffleEnabled = player.shuffleModeEnabled,
             repeatMode = player.repeatMode,
-            isFavorite = currentItem?.mediaId in favorites,
+            isFavorite = FavoriteButtonState.forTrack(currentItem?.mediaId, favoriteIds).selected,
             audioSessionId = player.audioSessionId,
             updatedAt = System.currentTimeMillis(),
+            loopStartMs = loop?.startMs,
+            loopEndMs = loop?.endMs,
+            playbackOrder = buildList {
+                val timeline = player.currentTimeline
+                var index = timeline.getFirstWindowIndex(player.shuffleModeEnabled)
+                while (index != C.INDEX_UNSET && size < timeline.windowCount) {
+                    add(index)
+                    index = timeline.getNextWindowIndex(index, Player.REPEAT_MODE_OFF, player.shuffleModeEnabled)
+                }
+            },
         )
 
         app.snapshotStore.write(snapshot)
-        NowPlayingWidget.refresh(applicationContext)
+        // Rendering is independent of slower saved-session persistence and is
+        // not canceled by the next playback event.
+        widgetUpdates.request()
+        val sessionId = activeSessionId
+        try {
+            app.listening.update { data -> data.copy(activeSessionId = sessionId?.takeIf { id -> data.sessions.any { it.id == id } }, sessions = data.sessions.map {
+                if (it.id == sessionId) it.copy(snapshot = snapshot.copy(isPlaying = false), updatedAt = System.currentTimeMillis()) else it
+            }) }
+        } catch (error: Exception) {
+            if(error is kotlinx.coroutines.CancellationException) throw error
+            android.util.Log.w("SpindleSessions", "Could not update saved listening position", error)
+        }
+        snapshot
     }
 
     /**
@@ -494,39 +682,50 @@ class PlaybackService : MediaLibraryService() {
     private suspend fun restoreQueueIfEmpty() {
         if (player.mediaItemCount > 0) return
         val snapshot = spindle.snapshotStore.snapshot.first()
-        if (snapshot.queue.isEmpty() || snapshot.currentIndex < 0) return
+        // Reading DataStore suspends. A phone or car may have supplied a queue meanwhile.
+        if (player.mediaItemCount > 0) return
+        activeSessionId = try { spindle.listening.data.first().activeSessionId }
+        catch (error: Exception) { if(error is kotlinx.coroutines.CancellationException) throw error; null }
+        applySnapshot(snapshot)
+    }
 
-        val items = snapshot.queue.mapNotNull { entry ->
-            val id = entry.mediaId.toLongOrNull() ?: return@mapNotNull null
+    private fun applySnapshot(snapshot: PlaybackSnapshot) {
+        val restored = snapshot.restoration() ?: return
+        val items = restored.entries.map { entry ->
             MediaItem.Builder()
                 .setMediaId(entry.mediaId)
-                .setUri(ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id))
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(entry.title)
-                        .setArtist(entry.artist)
-                        .setDurationMs(entry.durationMs.takeIf { it > 0 })
-                        .setIsBrowsable(false)
-                        .setIsPlayable(true)
-                        .build()
-                )
+                .setUri(entry.uri?.let(Uri::parse) ?: ContentUris.withAppendedId(
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, entry.mediaId.toLong(),
+                ))
+                .setMediaMetadata(MediaMetadata.Builder()
+                    .setTitle(entry.title)
+                    .setArtist(entry.artist)
+                    .setAlbumTitle(entry.album)
+                    .setArtworkUri(entry.artUri?.let(Uri::parse))
+                    .setDurationMs(entry.durationMs.takeIf { it > 0 })
+                    .setIsBrowsable(false)
+                    .setIsPlayable(true)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                    .build())
                 .build()
         }
-        if (items.isEmpty()) return
-
-        // Restored paused and at the saved position: waking a phone up with
-        // music because the launcher redrew a widget would be indefensible.
-        player.setMediaItems(items, snapshot.currentIndex.coerceIn(0, items.lastIndex), snapshot.positionMs)
+        player.setMediaItems(items, restored.currentIndex, restored.positionMs)
+        player.setShuffleOrder(DefaultShuffleOrder(restored.order.toIntArray(), System.nanoTime()))
+        player.shuffleModeEnabled = restored.shuffleEnabled
+        player.repeatMode = restored.repeatMode
         player.prepare()
     }
 
     companion object {
+        const val COMMAND_SAVE_SESSION = "com.irondigital.spindle.SAVE_SESSION"
+        const val COMMAND_RESUME_SESSION = "com.irondigital.spindle.RESUME_SESSION"
+        const val COMMAND_SET_LOOP = "com.irondigital.spindle.SET_LOOP"
         const val COMMAND_TOGGLE_FAVORITE = "com.irondigital.spindle.TOGGLE_FAVORITE"
         const val COMMAND_SET_SLEEP_TIMER = "com.irondigital.spindle.SET_SLEEP_TIMER"
         const val COMMAND_CANCEL_SLEEP_TIMER = "com.irondigital.spindle.CANCEL_SLEEP_TIMER"
+        const val COMMAND_SMART_SHUFFLE = "com.irondigital.spindle.SMART_SHUFFLE"
         const val EXTRA_SLEEP_MINUTES = "sleep_minutes"
         const val EXTRA_SLEEP_END_OF_TRACK = "sleep_end_of_track"
 
-        private const val SNAPSHOT_DEBOUNCE_MS = 120L
     }
 }

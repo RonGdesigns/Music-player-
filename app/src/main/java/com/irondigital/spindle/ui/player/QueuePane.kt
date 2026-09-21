@@ -24,6 +24,18 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.*
+import kotlinx.coroutines.launch
+import com.irondigital.spindle.ui.personal.NameDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,24 +49,23 @@ import com.irondigital.spindle.ui.components.LampIconButton
 import com.irondigital.spindle.ui.components.formatDuration
 import com.irondigital.spindle.ui.components.formatTotalDuration
 import com.irondigital.spindle.ui.theme.Ink
+import com.irondigital.spindle.ui.theme.Ground
 import com.irondigital.spindle.ui.theme.Lamp
 import com.irondigital.spindle.ui.theme.Space
 import com.irondigital.spindle.ui.theme.SpindleType
 import com.irondigital.spindle.ui.theme.Steel
 
-/**
- * The queue, in full and editable.
- *
- * The widget shows what is coming; this is where you rearrange it. Tap to jump,
- * the arrows move a track, the cross drops it. Drag-and-drop would be nicer
- * still, but explicit buttons work with a screen reader and with one thumb on a
- * bus, which drag does not.
- */
+/** Full queue with long-press drag handles and accessible move/remove menu actions. */
 @Composable
 fun QueuePane(playerViewModel: PlayerViewModel) {
     val queue by playerViewModel.queue.collectAsStateWithLifecycle()
     val playback by playerViewModel.playback.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var saving by remember { mutableStateOf(false) }
+    var dragTarget by remember { mutableStateOf<Int?>(null) }
+    var dragY by remember { mutableStateOf(0f) }
+    if(saving) NameDialog("Save listening session", onDismiss = { saving = false }, onSave = playerViewModel::saveSession)
 
     LaunchedEffect(playback.queueIndex) {
         if (playback.queueIndex >= 0 && playback.queueIndex < queue.size) {
@@ -62,7 +73,7 @@ fun QueuePane(playerViewModel: PlayerViewModel) {
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize().background(Ground.Scrim)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -75,15 +86,8 @@ fun QueuePane(playerViewModel: PlayerViewModel) {
                 color = Steel.Bright,
             )
             Spacer(Modifier.weight(1f))
-            if (queue.isNotEmpty()) {
-                Text(
-                    text = formatTotalDuration(
-                        queue.drop(playback.queueIndex.coerceAtLeast(0)).sumOf { it.durationMs }
-                    ) + " left",
-                    style = SpindleType.Data,
-                    color = Steel.Dim,
-                )
-            }
+            TextButton(enabled = queue.isNotEmpty(), onClick = { saving = true }) { Text("Save session") }
+
         }
 
         LazyColumn(
@@ -93,12 +97,14 @@ fun QueuePane(playerViewModel: PlayerViewModel) {
         ) {
             itemsIndexed(queue, key = { index, track -> "$index-${track.mediaId}" }) { index, track ->
                 val isCurrent = index == playback.queueIndex
+                var menu by remember { mutableStateOf(false) }
 
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 60.dp)
-                        .clickable { playerViewModel.seekToQueueIndex(index) }
+                        .background(if(index == dragTarget) Ground.Raised else androidx.compose.ui.graphics.Color.Transparent)
+                        .heightIn(min = 72.dp)
+                        .clickable { playerViewModel.seekToQueueEntry(track) }
                         .padding(start = Space.gutter, end = Space.s),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -123,7 +129,7 @@ fun QueuePane(playerViewModel: PlayerViewModel) {
                             Text(
                                 text = (index + 1).toString(),
                                 style = SpindleType.Data,
-                                color = if (isCurrent) Lamp.Bright else Steel.Engrave,
+                                color = if (isCurrent) Lamp.Bright else Steel.Dim,
                             )
                         }
                     }
@@ -150,32 +156,44 @@ fun QueuePane(playerViewModel: PlayerViewModel) {
                         )
                     }
 
-                    LampIconButton(
-                        icon = Icons.Filled.KeyboardArrowUp,
-                        contentDescription = "Move ${track.title} up",
-                        onClick = { playerViewModel.moveInQueue(index, index - 1) },
-                        enabled = index > 0,
-                        size = 36.dp,
-                        iconSize = 18.dp,
-                        unlitColor = Steel.Dim,
-                    )
-                    LampIconButton(
-                        icon = Icons.Filled.KeyboardArrowDown,
-                        contentDescription = "Move ${track.title} down",
-                        onClick = { playerViewModel.moveInQueue(index, index + 1) },
-                        enabled = index < queue.lastIndex,
-                        size = 36.dp,
-                        iconSize = 18.dp,
-                        unlitColor = Steel.Dim,
-                    )
-                    LampIconButton(
-                        icon = Icons.Filled.Close,
-                        contentDescription = "Remove ${track.title} from queue",
-                        onClick = { playerViewModel.removeFromQueue(index) },
-                        size = 36.dp,
-                        iconSize = 16.dp,
-                        unlitColor = Steel.Engrave,
-                    )
+                    Box(Modifier.width(48.dp).height(56.dp)
+                        .semantics { contentDescription = "Drag ${track.title} to reorder" }
+                        .pointerInput(track.revision, track.index) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = {
+                                    dragTarget = index
+                                    val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+                                    dragY = ((info?.offset ?: 0) + (info?.size ?: 0) / 2).toFloat()
+                                },
+                                onDragCancel = { dragTarget = null },
+                                onDragEnd = {
+                                    dragTarget?.let { if(it != index) playerViewModel.moveInQueue(track, it) }
+                                    dragTarget = null
+                                },
+                                onDrag = { change, amount ->
+                                    change.consume(); dragY += amount.y
+                                    val info = listState.layoutInfo
+                                    val target = info.visibleItemsInfo.minByOrNull { kotlin.math.abs((it.offset + it.size / 2) - dragY) }
+                                    dragTarget = target?.index
+                                    if(dragY > info.viewportEndOffset - 80 || dragY < info.viewportStartOffset + 80) {
+                                        scope.launch { listState.scrollBy(amount.y) }
+                                    }
+                                },
+                            )
+                        }, contentAlignment = Alignment.Center) {
+                        Icon(Icons.Filled.DragHandle, null, tint = Steel.Bright)
+                    }
+                    Box {
+                        LampIconButton(Icons.Filled.MoreVert, "Queue actions for ${track.title}", { menu = true }, size = 48.dp)
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(text = { Text("Move up") }, enabled = index > 0,
+                                onClick = { playerViewModel.moveInQueue(track, index - 1); menu = false })
+                            DropdownMenuItem(text = { Text("Move down") }, enabled = index < queue.lastIndex,
+                                onClick = { playerViewModel.moveInQueue(track, index + 1); menu = false })
+                            DropdownMenuItem(text = { Text("Remove from queue") },
+                                onClick = { playerViewModel.removeFromQueue(track); menu = false })
+                        }
+                    }
                 }
             }
         }

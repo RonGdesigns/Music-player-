@@ -14,7 +14,7 @@ import java.net.URL
  * is two GET requests that return JSON, and a whole networking stack to make
  * them would be the largest dependency in the app for the smallest feature.
  *
- * What leaves the device is the track title, the artist and the length —
+ * What leaves the device is the track title, artist, album, and length —
  * nothing else, and only for tracks the user has asked about. That is a real
  * trade and the setting that enables it says so in those words.
  */

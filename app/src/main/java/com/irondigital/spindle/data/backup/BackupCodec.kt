@@ -29,6 +29,8 @@ data class BackupTrack(
     val editedAlbum: String? = null,
     val editedYear: Int? = null,
     val editedTrackNumber: Int? = null,
+    val sourceTitle: String? = null,
+    val sourceArtist: String? = null,
 ) {
     val hasHistory: Boolean get() = playCount > 0 || skipCount > 0 || msListened > 0
     val hasEdit: Boolean
@@ -59,7 +61,7 @@ data class Backup(
  */
 object BackupCodec {
 
-    const val VERSION = 1
+    const val VERSION = 2
 
     /**
      * Length is rounded to the nearest second before it goes in the key. Two
@@ -87,6 +89,8 @@ object BackupCodec {
                     put("title", track.title)
                     put("artist", track.artist)
                     put("durationMs", track.durationMs)
+                    track.sourceTitle?.let { put("sourceTitle", it) }
+                    track.sourceArtist?.let { put("sourceArtist", it) }
                     if (track.playCount != 0) put("playCount", track.playCount)
                     if (track.skipCount != 0) put("skipCount", track.skipCount)
                     if (track.lastPlayedAt != 0L) put("lastPlayedAt", track.lastPlayedAt)
@@ -145,6 +149,8 @@ object BackupCodec {
                 editedAlbum = item.optStringOrNull("editedAlbum"),
                 editedYear = item.optIntOrNull("editedYear"),
                 editedTrackNumber = item.optIntOrNull("editedTrackNumber"),
+                sourceTitle = item.optStringOrNull("sourceTitle"),
+                sourceArtist = item.optStringOrNull("sourceArtist"),
             )
         }
 

@@ -52,6 +52,12 @@ class ArtworkProvider : ContentProvider() {
     override fun getType(uri: Uri): String = "image/*"
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
+        if (uri.pathSegments.firstOrNull() == "custom") {
+            val name = uri.lastPathSegment.orEmpty()
+            if (!name.matches(Regex("[a-f0-9-]+\\.jpg"))) throw FileNotFoundException("Invalid artwork")
+            val file = File(context!!.filesDir, "custom-art/$name")
+            return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        }
         val mediaId = uri.lastPathSegment?.takeIf { it.isNotBlank() }
             ?: throw FileNotFoundException("No track in $uri")
         val context = context ?: throw FileNotFoundException("No context")
@@ -168,6 +174,8 @@ class ArtworkProvider : ContentProvider() {
         /** Tracks known to have no embedded art, so the file is opened once. */
         private val missing: MutableSet<String> =
             Collections.synchronizedSet(mutableSetOf<String>())
+
+        fun customUri(file: String): Uri = Uri.parse("content://$AUTHORITY/custom/$file")
 
         fun uriFor(mediaId: String): Uri =
             Uri.parse("content://$AUTHORITY/$mediaId")

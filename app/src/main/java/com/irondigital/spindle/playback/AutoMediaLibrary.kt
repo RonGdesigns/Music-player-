@@ -16,7 +16,10 @@ import com.irondigital.spindle.data.model.Track
  * callbacks to return promptly on the media service thread.
  */
 @OptIn(UnstableApi::class)
-class AutoMediaLibrary(private val app: SpindleApp) {
+class AutoMediaLibrary(
+    private val app: SpindleApp,
+    private val library: com.irondigital.spindle.data.repo.LibraryRepository = app.library,
+) {
 
     fun root(): MediaItem =
         browsable(ROOT_ID, "Spindle", mediaType = MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
@@ -40,10 +43,15 @@ class AutoMediaLibrary(private val app: SpindleApp) {
         mediaId.startsWith(ALBUM_PREFIX) -> albumItem(mediaId)
         mediaId.startsWith(ARTIST_PREFIX) -> artistItem(mediaId)
         mediaId.startsWith(FOLDER_PREFIX) -> folderItem(mediaId)
-        else -> app.library.trackFor(mediaId)?.toMediaItem()
+        else -> library.trackFor(trackId(mediaId))?.toMediaItem()?.buildUpon()?.setMediaId(mediaId)?.build()
     }
 
-    fun children(parentId: String): List<MediaItem> = when {
+    fun children(parentId: String): List<MediaItem> = rawChildren(parentId).map { item ->
+        if (item.mediaMetadata.isPlayable == true) item.buildUpon()
+            .setMediaId(selectionId(parentId, item.mediaId)).build() else item
+    }
+
+    private fun rawChildren(parentId: String): List<MediaItem> = when {
         // The auto-curated lists come first, because they are the reason this
         // app exists and the car is where reaching for a specific album is
         // exactly what you should not be doing.
@@ -58,7 +66,7 @@ class AutoMediaLibrary(private val app: SpindleApp) {
             browsable(FOLDERS_ID, "Folders", mediaType = MediaMetadata.MEDIA_TYPE_FOLDER_MIXED),
         )
 
-        parentId == SONGS_ID -> app.library.tracks.value
+        parentId == SONGS_ID -> library.tracks.value
             .sortedBy { it.title.lowercase() }
             .map { it.toMediaItem() }
 
@@ -67,7 +75,7 @@ class AutoMediaLibrary(private val app: SpindleApp) {
         // thread Auto expects to answer immediately.
         parentId == MOST_PLAYED_ID -> {
             val stats = app.playStats.value
-            app.library.tracks.value
+            library.tracks.value
                 .filter { (stats[it.mediaId]?.playCount ?: 0) > 0 }
                 .sortedWith(
                     compareByDescending<Track> { stats[it.mediaId]?.playCount ?: 0 }
@@ -79,26 +87,26 @@ class AutoMediaLibrary(private val app: SpindleApp) {
 
         parentId == FAVORITES_ID -> {
             val favorites = app.favoriteIds.value
-            app.library.tracks.value
+            library.tracks.value
                 .filter { it.mediaId in favorites }
                 .map { it.toMediaItem() }
         }
 
         parentId == RECENT_ID -> {
             val stats = app.playStats.value
-            app.library.tracks.value
+            library.tracks.value
                 .filter { (stats[it.mediaId]?.lastPlayedAt ?: 0L) > 0 }
                 .sortedByDescending { stats[it.mediaId]?.lastPlayedAt ?: 0L }
                 .take(CURATED_LIMIT)
                 .map { it.toMediaItem() }
         }
 
-        parentId == ADDED_ID -> app.library.tracks.value
+        parentId == ADDED_ID -> library.tracks.value
             .sortedByDescending { it.dateAddedSec }
             .take(CURATED_LIMIT)
             .map { it.toMediaItem() }
 
-        parentId == ALBUMS_ID -> app.library.tracks.value
+        parentId == ALBUMS_ID -> library.tracks.value
             .groupBy { it.albumId }
             .values
             .mapNotNull { group ->
@@ -121,7 +129,7 @@ class AutoMediaLibrary(private val app: SpindleApp) {
             }
             .sortedBy { it.mediaMetadata.title?.toString()?.lowercase() }
 
-        parentId == ARTISTS_ID -> app.library.tracks.value
+        parentId == ARTISTS_ID -> library.tracks.value
             .groupBy { it.artist }
             .keys
             .sortedBy { it.lowercase() }
@@ -129,7 +137,7 @@ class AutoMediaLibrary(private val app: SpindleApp) {
                 browsable(ARTIST_PREFIX + Uri.encode(artist), artist)
             }
 
-        parentId == FOLDERS_ID -> app.library.tracks.value
+        parentId == FOLDERS_ID -> library.tracks.value
             .mapNotNull { it.folderPath }
             .distinct()
             .sortedBy { it.substringAfterLast('/').lowercase() }
@@ -144,45 +152,51 @@ class AutoMediaLibrary(private val app: SpindleApp) {
         parentId.startsWith(ALBUM_PREFIX) -> {
             val albumId = parentId.removePrefix(ALBUM_PREFIX).toLongOrNull()
                 ?: return emptyList()
-            app.library.tracksInAlbum(albumId).map { it.toMediaItem() }
+            library.tracksInAlbum(albumId).map { it.toMediaItem() }
         }
 
         parentId.startsWith(ARTIST_PREFIX) -> {
             val artist = Uri.decode(parentId.removePrefix(ARTIST_PREFIX))
-            app.library.tracksByArtist(artist).map { it.toMediaItem() }
+            library.tracksByArtist(artist).map { it.toMediaItem() }
         }
 
         parentId.startsWith(FOLDER_PREFIX) -> {
             val path = Uri.decode(parentId.removePrefix(FOLDER_PREFIX))
-            app.library.tracksInFolder(path).map { it.toMediaItem() }
+            library.tracksInFolder(path).map { it.toMediaItem() }
         }
 
         else -> emptyList()
     }
 
     fun search(query: String): List<MediaItem> =
-        app.library.search(query).map { it.toMediaItem() }
+        library.search(query).map { it.toMediaItem() }
 
     fun resolvePlayable(requested: List<MediaItem>): List<MediaItem> =
         requested.mapNotNull { request ->
-            app.library.trackFor(request.mediaId)?.toMediaItem()
+            library.trackFor(trackId(request.mediaId))?.toMediaItem()
                 ?: request.takeIf { it.localConfiguration != null }
         }
 
-    /**
-     * Legacy Android Auto often sends only the selected media id. Give it a
-     * useful queue instead of a one-song timeline so next/previous still work.
-     */
+    /** Expand only IDs issued by our browse tree; explicit queues stay explicit. */
     fun queueForSelection(mediaId: String): Pair<List<MediaItem>, Int>? {
-        val tracks = app.library.tracks.value
-        val index = tracks.indexOfFirst { it.mediaId == mediaId }
-        if (index < 0) return null
-        return tracks.map { it.toMediaItem() } to index
+        if (!mediaId.startsWith(SELECTION_PREFIX)) return null
+        val parts = mediaId.removePrefix(SELECTION_PREFIX).split(':', limit = 2)
+        if (parts.size != 2) return null
+        val items = rawChildren(Uri.decode(parts[0])).filter { it.mediaMetadata.isPlayable == true }
+        val index = items.indexOfFirst { it.mediaId == Uri.decode(parts[1]) }
+        return if (index >= 0) items to index else null
     }
+
+    private fun selectionId(parent: String, id: String) =
+        SELECTION_PREFIX + Uri.encode(parent) + ":" + Uri.encode(id)
+
+    private fun trackId(id: String): String = if (id.startsWith(SELECTION_PREFIX)) {
+        Uri.decode(id.removePrefix(SELECTION_PREFIX).substringAfter(':', ""))
+    } else id
 
     private fun albumItem(mediaId: String): MediaItem? {
         val albumId = mediaId.removePrefix(ALBUM_PREFIX).toLongOrNull() ?: return null
-        val tracks = app.library.tracksInAlbum(albumId)
+        val tracks = library.tracksInAlbum(albumId)
         val first = tracks.firstOrNull() ?: return null
         return MediaItem.Builder()
             .setMediaId(mediaId)
@@ -236,24 +250,8 @@ class AutoMediaLibrary(private val app: SpindleApp) {
         )
         .build()
 
-    private fun Track.toMediaItem(): MediaItem = MediaItem.Builder()
-        .setMediaId(mediaId)
-        .setUri(uri)
-        .setMediaMetadata(
-            MediaMetadata.Builder()
-                .setTitle(title)
-                .setArtist(artist)
-                .setAlbumTitle(album)
-                .setArtworkUri(albumArtUri)
-                .setDurationMs(durationMs.takeIf { it > 0 })
-                .setIsBrowsable(false)
-                .setIsPlayable(true)
-                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                .build()
-        )
-        .build()
-
     companion object {
+        private const val SELECTION_PREFIX = "spindle:selection:"
         const val ROOT_ID = "spindle:auto:root"
         const val SONGS_ID = "spindle:auto:songs"
         const val MOST_PLAYED_ID = "spindle:auto:most-played"

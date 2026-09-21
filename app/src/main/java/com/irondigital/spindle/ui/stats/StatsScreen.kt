@@ -191,8 +191,8 @@ private fun EmptyStats() {
 
 // ------------------------------------------------------------------ labels
 
-private val dayFormat = SimpleDateFormat("d MMM", Locale.getDefault())
-private val shortDayFormat = SimpleDateFormat("d/M", Locale.getDefault())
+private val dayFormat = SimpleDateFormat("MMM d", Locale.US)
+private val shortDayFormat = SimpleDateFormat("M/d", Locale.US)
 
 /** Four ticks across thirty days — enough to orient, few enough to read. */
 private fun dayAxisLabels(days: List<DayBucket>): List<Pair<Int, String>> {

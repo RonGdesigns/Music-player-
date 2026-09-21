@@ -110,10 +110,17 @@ fun LibraryScreen(
     onOpen: (Destination) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenNowPlaying: () -> Unit,
+    section: String = "Home",
+    onSectionChange: (String) -> Unit = {},
 ) {
-    var tab by rememberSaveable { mutableStateOf(LibraryTab.HOME) }
-    var searching by rememberSaveable { mutableStateOf(false) }
+    var tab by rememberSaveable { mutableStateOf(LibraryTab.SONGS) }
+    val searching = section == "Search"
     var youtubeDialogOpen by rememberSaveable { mutableStateOf(false) }
+    var addingMusic by rememberSaveable { mutableStateOf(false) }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) {
+        libraryViewModel.importFiles(it)
+    }
+    val scanError by libraryViewModel.scanError.collectAsStateWithLifecycle()
 
     val scanState by libraryViewModel.scanState.collectAsStateWithLifecycle()
 
@@ -128,10 +135,11 @@ fun LibraryScreen(
             query = libraryViewModel.search.collectAsStateWithLifecycle().value,
             onQueryChange = libraryViewModel::setSearch,
             onToggleSearch = {
-                searching = !searching
-                if (!searching) libraryViewModel.setSearch("")
+                onSectionChange(if (searching) "Library" else "Search")
+                libraryViewModel.setSearch("")
             },
             onOpenSettings = onOpenSettings,
+            onAddMusic = if (libraryViewModel.importSupported) ({ addingMusic = true }) else null,
         )
 
         if (searching) {
@@ -139,16 +147,34 @@ fun LibraryScreen(
             return@Column
         }
 
-        if (libraryViewModel.importSupported) {
-            YoutubeImportBar(onClick = { youtubeDialogOpen = true })
-        }
-        TabBar(selected = tab, onSelect = { tab = it })
+        if(section == "Library") TabBar(selected = tab, onSelect = { tab = it })
 
+        if (scanState == LibraryRepository.ScanState.SCANNING) {
+            Text("Reading your music library…", style = SpindleType.Secondary, color = Steel.Dim,
+                modifier = Modifier.padding(horizontal = Space.gutter, vertical = Space.s))
+        }
+        scanError?.let { message ->
+            Column(Modifier.fillMaxWidth().padding(horizontal = Space.gutter, vertical = Space.s)) {
+                Text(message, style = SpindleType.Secondary, color = Steel.Bright)
+                Row {
+                    TextButton(onClick = libraryViewModel::refresh) { Text("Try again") }
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    TextButton(onClick = {
+                        context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            android.net.Uri.parse("package:${context.packageName}")))
+                    }) { Text("App settings") }
+                }
+            }
+        }
         if (scanState == LibraryRepository.ScanState.EMPTY) {
             EmptyLibrary(onRescan = libraryViewModel::refresh)
             return@Column
         }
 
+        if (section == "Home") {
+            com.irondigital.spindle.ui.personal.ListeningHome(libraryViewModel, playerViewModel, onOpen, onOpenNowPlaying)
+            return@Column
+        }
         when (tab) {
             LibraryTab.HOME -> HomeTab(libraryViewModel, playerViewModel, onOpen, onOpenNowPlaying)
             LibraryTab.SONGS -> SongsTab(libraryViewModel, playerViewModel, onOpen, onOpenNowPlaying)
@@ -159,6 +185,26 @@ fun LibraryScreen(
         }
     }
 
+    if (addingMusic) {
+        AlertDialog(
+            onDismissRequest = { addingMusic = false },
+            containerColor = Ground.Plate,
+            title = { Text("Add music", style = SpindleType.Section, color = Ink.Primary) },
+            text = {
+                Column {
+                    TextButton(onClick = {
+                        addingMusic = false
+                        importLauncher.launch(arrayOf("audio/*"))
+                    }) { Text("Import audio files") }
+                    TextButton(onClick = { addingMusic = false; youtubeDialogOpen = true }) {
+                        Text("Paste YouTube link")
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { addingMusic = false }) { Text("Cancel") } },
+        )
+    }
+
     if (youtubeDialogOpen) {
         YoutubeLinkDialog(
             onDismiss = { youtubeDialogOpen = false },
@@ -167,41 +213,6 @@ fun LibraryScreen(
                 youtubeDialogOpen = false
             },
         )
-    }
-}
-
-// ------------------------------------------------------------------ YouTube link converter
-
-@Composable
-private fun YoutubeImportBar(onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = Space.gutter, vertical = Space.s),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = Icons.Filled.Download,
-            contentDescription = null,
-            tint = Lamp.Bright,
-            modifier = Modifier.size(20.dp),
-        )
-        Spacer(Modifier.width(Space.m))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Paste YouTube link",
-                style = SpindleType.RowTitle,
-                color = Lamp.Bright,
-            )
-            Text(
-                text = "Convert a video or playlist to MP3 and add it to Spindle",
-                style = SpindleType.Data,
-                color = Steel.Dim,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
     }
 }
 
@@ -246,7 +257,7 @@ private fun YoutubeLinkDialog(
                             Text(
                                 text = "https://youtube.com/...",
                                 style = SpindleType.Body,
-                                color = Steel.Engrave,
+                                color = Steel.Dim,
                             )
                         }
                         inner()
@@ -285,6 +296,7 @@ private fun LibraryHeader(
     onQueryChange: (String) -> Unit,
     onToggleSearch: () -> Unit,
     onOpenSettings: () -> Unit,
+    onAddMusic: (() -> Unit)?,
 ) {
     Row(
         modifier = Modifier
@@ -305,7 +317,7 @@ private fun LibraryHeader(
                         Text(
                             text = "Search",
                             style = SpindleType.ScreenTitle,
-                            color = Steel.Engrave,
+                            color = Steel.Dim,
                         )
                     }
                     inner()
@@ -320,6 +332,9 @@ private fun LibraryHeader(
             )
         }
 
+        if (onAddMusic != null && !searching) {
+            LampIconButton(icon = Icons.Filled.Add, contentDescription = "Add music", onClick = onAddMusic)
+        }
         LampIconButton(
             icon = if (searching) Icons.Filled.Close else Icons.Filled.Search,
             contentDescription = if (searching) "Close search" else "Search",
@@ -348,7 +363,7 @@ private fun TabBar(selected: LibraryTab, onSelect: (LibraryTab) -> Unit) {
                 .padding(horizontal = Space.gutter),
             horizontalArrangement = Arrangement.spacedBy(Space.l),
         ) {
-            LibraryTab.entries.forEach { entry ->
+            LibraryTab.entries.filterNot { it == LibraryTab.HOME }.forEach { entry ->
                 val isSelected = entry == selected
                 val color by animateColorAsState(
                     targetValue = if (isSelected) Lamp.Bright else Steel.Dim,
@@ -847,7 +862,7 @@ private fun AlbumsTab(libraryViewModel: LibraryViewModel, onOpen: (Destination) 
                 Text(
                     text = "${album.trackCount} tracks",
                     style = SpindleType.Data,
-                    color = Steel.Engrave,
+                    color = Steel.Dim,
                 )
             }
         }

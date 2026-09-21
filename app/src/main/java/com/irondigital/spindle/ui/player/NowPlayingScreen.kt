@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
@@ -36,6 +37,12 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import com.irondigital.spindle.ui.personal.*
+import com.irondigital.spindle.ui.MiniPlayerBar
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
@@ -46,6 +53,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
@@ -96,6 +106,7 @@ fun NowPlayingScreen(
     playerViewModel: PlayerViewModel,
     libraryViewModel: LibraryViewModel,
     onCollapse: () -> Unit,
+    embedded: Boolean = false,
 ) {
     // The playhead ticks four times a second, and this screen needs none of
     // it — only two fields that change rarely. Unwrapping the whole state here
@@ -111,11 +122,12 @@ fun NowPlayingScreen(
     val context = LocalContext.current
 
     var pane by remember { mutableStateOf(PlayerPane.PLAYING) }
+    var showTools by remember { mutableStateOf(false) }
     var showInfo by remember { mutableStateOf(false) }
     var showSleepTimer by remember { mutableStateOf(false) }
     var editingTrack by remember { mutableStateOf<com.irondigital.spindle.data.model.Track?>(null) }
 
-    // Honours the setting rather than merely storing it: the screen is held
+    // Honors the setting rather than merely storing it: the screen is held
     // awake only while lyrics are actually on screen, and the flag is released
     // the moment the pane changes or the player closes.
     val view = LocalView.current
@@ -159,12 +171,13 @@ fun NowPlayingScreen(
                     .padding(horizontal = Space.s),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                LampIconButton(
+                if(!embedded) LampIconButton(
                     icon = Icons.Filled.KeyboardArrowDown,
                     contentDescription = "Collapse player",
                     onClick = onCollapse,
                 )
-                Spacer(Modifier.weight(1f))
+                Text("Now playing", style = SpindleType.Secondary, color = Steel.Bright, modifier = Modifier.weight(1f))
+                LampIconButton(Icons.Filled.Tune, "Listening tools", { showTools = true }, enabled = track != null)
                 track?.let { current ->
                     LampIconButton(
                         icon = Icons.Filled.Share,
@@ -190,7 +203,7 @@ fun NowPlayingScreen(
 
             Box(modifier = Modifier.weight(1f).clipToBounds()) {
                 when (pane) {
-                    PlayerPane.PLAYING -> PlayingPane(track?.artUri?.toString())
+                    PlayerPane.PLAYING -> PlayingPane(track?.artUri?.toString(), track?.title ?: "Your music")
                     PlayerPane.LYRICS -> LyricsPane(
                         playerViewModel = playerViewModel,
                         onSeek = playerViewModel::seekTo,
@@ -200,14 +213,20 @@ fun NowPlayingScreen(
             }
 
             TransportBlock(
+                compact = pane != PlayerPane.PLAYING,
                 playerViewModel = playerViewModel,
                 title = track?.title ?: "—",
                 artist = track?.artist ?: "",
                 album = track?.album.orEmpty(),
                 onShowQueue = { pane = PlayerPane.QUEUE },
+                // The reactive mode is the one worth watching, so the plate
+                // behind the transport gets out of its way.
+                seeThrough = settings.visualizerMode == VisualizerMode.AUDIO_REACTIVE,
             )
         }
     }
+
+    if (showTools) PlayerTools(playerViewModel, { showTools = false })
 
     if (showInfo) {
         track?.let { current ->
@@ -260,7 +279,7 @@ private fun PaneStrip(selected: PlayerPane, onSelect: (PlayerPane) -> Unit) {
                 label = "pane-${entry.name}",
             )
             Column(
-                modifier = Modifier.clickable { onSelect(entry) },
+                modifier = Modifier.clickable { onSelect(entry) }.heightIn(min = 48.dp).padding(vertical = 10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(entry.label, style = SpindleType.RowTitle, color = color)
@@ -287,49 +306,10 @@ private fun PaneStrip(selected: PlayerPane, onSelect: (PlayerPane) -> Unit) {
  * being a texture every card wears.
  */
 @Composable
-private fun PlayingPane(artUri: String?) {
-    val colors = LocalArtworkColors.current
-    val context = LocalContext.current
-
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = Space.xl),
-        contentAlignment = Alignment.Center,
-    ) {
-        // fillMaxWidth().aspectRatio(1f) makes a square as wide as the screen,
-        // which on a short screen — or once the lyrics and queue tabs push the
-        // transport up — is taller than the space available, and the overflow
-        // lands on top of the controls. Sizing from the smaller dimension keeps
-        // the cover square and inside its pane on every screen shape.
-        val side = minOf(maxWidth, maxHeight)
-        Box(
-            modifier = Modifier
-                .size(side)
-                .shadow(
-                    elevation = 36.dp,
-                    shape = RoundedCornerShape(Corner.plate),
-                    ambientColor = colors.dominant,
-                    spotColor = colors.vibrant,
-                )
-                .shadow(
-                    elevation = 6.dp,
-                    shape = RoundedCornerShape(Corner.plate),
-                    ambientColor = colors.dominant,
-                    spotColor = colors.dominant,
-                )
-                .clip(RoundedCornerShape(Corner.plate))
-                .background(Ground.Plate),
-        ) {
-            if (artUri != null) {
-                AsyncImage(
-                    model = artUri,
-                    contentDescription = "Cover art",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
+private fun PlayingPane(artUri: String?, title: String) {
+    BoxWithConstraints(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+        val side = minOf(maxWidth, maxHeight, 320.dp)
+        TypographicCover(artUri, title, Modifier.size(side))
     }
 }
 
@@ -340,6 +320,8 @@ private fun TransportBlock(
     artist: String,
     album: String,
     onShowQueue: () -> Unit,
+    compact: Boolean = false,
+    seeThrough: Boolean = false,
 ) {
     val playback by playerViewModel.playback.collectAsStateWithLifecycle()
 
@@ -349,11 +331,33 @@ private fun TransportBlock(
     var scrubPosition by remember { mutableFloatStateOf(0f) }
     val displayedProgress = if (scrubbing) scrubPosition else playback.progress
 
+    // Ground.Scrim is ninety percent opaque, which across the whole block puts
+    // a near-solid plate over the part of the screen there is most of. In the
+    // reactive mode it is faded instead: full strength behind the title, thin
+    // by the time it reaches the controls, gone underneath them.
+    //
+    // Not dropped altogether, and the reason is measurable rather than a
+    // preference. The artwork palette's accent is only ever brightened, never
+    // dimmed, so a pale cover can push the visualizer to roughly a quarter of
+    // full luminance. Over that, the title reads at about 2.5:1 with no plate
+    // at all against better than 10:1 with this one — the difference between
+    // readable and not. The transport icons are large shapes rather than text,
+    // so they need none of it, which is exactly where it reaches zero.
+    val plate: Brush = if (seeThrough) {
+        Brush.verticalGradient(
+            0f to Ground.Scrim,
+            0.62f to Ground.Deep.copy(alpha = 0.42f),
+            1f to Color.Transparent,
+        )
+    } else {
+        SolidColor(Ground.Scrim)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Ground.Deep.copy(alpha = 0.55f))
-            .padding(top = Space.m, bottom = Space.l),
+            .background(plate)
+            .padding(top = Space.s, bottom = Space.s),
     ) {
         // The gutter is applied per block rather than to the whole column, so
         // the transport row can run wider than the text above it. At the full
@@ -362,9 +366,9 @@ private fun TransportBlock(
         Column(modifier = Modifier.padding(horizontal = Space.gutter)) {
         Text(
             text = title,
-            style = SpindleType.Display,
+            style = if (compact) SpindleType.RowTitle else SpindleType.ScreenTitle,
             color = Ink.Primary,
-            maxLines = 2,
+            maxLines = if (compact) 1 else 2,
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(Space.xxs))
@@ -380,7 +384,7 @@ private fun TransportBlock(
 
         // The scale under the seek bar is the faceplate engraving, and it lights
         // up to the playhead — the bar and the texture are the same element.
-        TickScale(progress = displayedProgress, height = 12.dp, spacing = 6.dp)
+        if (!compact) TickScale(progress = displayedProgress, height = 6.dp, spacing = 6.dp)
 
         Slider(
             value = displayedProgress,
@@ -399,7 +403,7 @@ private fun TransportBlock(
                 activeTrackColor = Lamp.Bright,
                 inactiveTrackColor = Steel.Engrave,
             ),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Playback position" },
         )
 
         Row(modifier = Modifier.fillMaxWidth()) {
@@ -450,6 +454,7 @@ private fun TransportBlock(
                 contentDescription = if (playback.isPlaying) "Pause" else "Play",
                 onClick = playerViewModel::playPause,
                 playing = playback.isPlaying,
+                size = if(compact) 48.dp else 60.dp,
             )
             LampIconButton(
                 icon = Icons.Filled.SkipNext,
@@ -473,6 +478,7 @@ private fun TransportBlock(
             )
         }
 
+        if (!compact) {
         Spacer(Modifier.height(Space.s))
 
         Row(
@@ -508,6 +514,7 @@ private fun TransportBlock(
                 contentDescription = "Show queue",
                 onClick = onShowQueue,
             )
+        }
         }
     }
 }
