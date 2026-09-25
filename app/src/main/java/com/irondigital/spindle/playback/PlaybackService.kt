@@ -229,6 +229,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        spindle.nowPlayingId.value = null
         sleepTimerJob?.cancel()
         effects.release()
         loudness.detach()
@@ -570,6 +571,9 @@ class PlaybackService : MediaLibraryService() {
         override fun onEvents(player: Player, events: Player.Events) {
             if (events.containsAny(Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_TIMELINE_CHANGED)) {
                 refreshFavoriteButton()
+                // Tag saves wait on this: a file is never rewritten while it is
+                // the one being read for playback.
+                spindle.nowPlayingId.value = player.currentMediaItem?.mediaId
             }
             if (events.containsAny(
                     Player.EVENT_MEDIA_ITEM_TRANSITION,

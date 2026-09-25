@@ -116,6 +116,10 @@ dependencies {
     implementation(libs.coil.compose)
 
     // On-device link download + MP3 conversion without GPL-only dependencies.
+    // Writes corrected tags back into the audio files themselves. Mature,
+    // handles ID3v1/v2, FLAC Vorbis comments and MP4 atoms, and is only ever
+    // run against a private copy of a file — never the original.
+    implementation("net.jthink:jaudiotagger:3.0.1")
     implementation("dev.ffmpegkit-maintained:yt-dlp-android:2.0.2")
     implementation("dev.ffmpegkit-maintained:ffmpeg-kit-audio:8.1.7")
 

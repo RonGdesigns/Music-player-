@@ -53,6 +53,7 @@ import com.irondigital.spindle.ui.settings.SettingsScreen
 import com.irondigital.spindle.ui.tools.AutoTagScreen
 import com.irondigital.spindle.ui.tools.BatchEditScreen
 import com.irondigital.spindle.ui.tools.DuplicatesScreen
+import com.irondigital.spindle.ui.tools.SaveToFilesScreen
 import com.irondigital.spindle.ui.stats.StatsScreen
 import com.irondigital.spindle.ui.theme.Ground
 import com.irondigital.spindle.ui.theme.Motion
@@ -73,6 +74,7 @@ sealed interface Destination {
     data object AutoTag : Destination
     data object Duplicates : Destination
     data object BatchEdit : Destination
+    data object SaveToFiles : Destination
     data class Album(val albumId: Long) : Destination
     data class Artist(val name: String) : Destination
     data class Folder(val path: String) : Destination
@@ -185,6 +187,7 @@ private fun MainStack(
                         onOpenAutoTag = { push(Destination.AutoTag) },
                         onOpenDuplicates = { push(Destination.Duplicates) },
                         onOpenBatchEdit = { push(Destination.BatchEdit) },
+                        onOpenSaveToFiles = { push(Destination.SaveToFiles) },
                     )
 
                     Destination.Stats -> StatsScreen(onBack = ::pop)
@@ -193,6 +196,7 @@ private fun MainStack(
                     Destination.AutoTag -> AutoTagScreen(onBack = ::pop)
                     Destination.Duplicates -> DuplicatesScreen(onBack = ::pop)
                     Destination.BatchEdit -> BatchEditScreen(onBack = ::pop)
+                    Destination.SaveToFiles -> SaveToFilesScreen(onBack = ::pop)
 
                     is Destination.Album -> {
                         // Filtering the whole library on every recomposition would

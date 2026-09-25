@@ -55,7 +55,8 @@ class LibraryRepository(
 
     /** Straight from MediaStore, before the user's corrections are laid over it. */
     private var scanned: List<Track> = emptyList()
-    private var edits: Map<String, TrackEdit> = emptyMap()
+    @Volatile private var scannedById: Map<String, Track> = emptyMap()
+    @Volatile private var edits: Map<String, TrackEdit> = emptyMap()
 
     private val _tracks = MutableStateFlow<List<Track>>(emptyList())
     val tracks: StateFlow<List<Track>> = _tracks.asStateFlow()
@@ -126,6 +127,7 @@ class LibraryRepository(
 
     /** Lays the corrections over the scan. Callers must hold [composeMutex]. */
     private fun publish() {
+        scannedById = scanned.associateBy { it.mediaId }
         val corrected =
             if (edits.isEmpty()) scanned
             else scanned.map { track -> edits[track.mediaId]?.applyTo(track) ?: track }
@@ -137,6 +139,12 @@ class LibraryRepository(
     fun trackFor(mediaId: String): Track? = _byId.value[mediaId]
 
     suspend fun editFor(mediaId: String): TrackEdit? = trackEditDao.get(mediaId)
+
+    /** The track as the file itself describes it, with no correction applied. */
+    fun scannedTrackFor(mediaId: String): Track? = scannedById[mediaId]
+
+    /** Every correction currently laid over the library, by media id. */
+    fun corrections(): Map<String, TrackEdit> = edits
 
     suspend fun saveEdit(edit: TrackEdit) {
         // An edit that corrects nothing is a deletion, not a row of nulls.

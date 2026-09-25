@@ -69,12 +69,12 @@ See [design decisions](docs/listening-design.md) and the [feature verification r
   newer; doing it on older versions would mean holding `WRITE_EXTERNAL_STORAGE`,
   a whole-device permission every user would then be asked for.
 - **Edit song details** — title, artist, album, year, track number — from a
-  long-press or from the song-info sheet. These are saved as overrides rather
-  than written into the audio file: rewriting tags needs a tag-writing library,
-  per-file write consent from Android 10 on, and carries a real risk of damaging
-  a file you cannot replace. An override is undoable, needs no permission and
-  survives a rescan. Only the fields you actually change are stored, so fixing
-  the artist does not freeze the title against a future retag.
+  long-press or from the song-info sheet. By default this is an override: Spindle
+  shows the correction, the file is left as it is, and the override is undoable,
+  needs no permission and survives a rescan. Only fields that differ from the
+  file are stored, so fixing the artist neither freezes the title against a
+  future retag nor erases a title correction made earlier. Tick **Also save
+  into the file** to write it into the file as well (see *Saving into files*).
 - **Share a track** — the long-press menu, the player, and a multi-select
   selection all hand the audio file itself to the Android share sheet, so it
   goes to messages or anywhere else exactly as it would from Samsung's player.
@@ -220,8 +220,8 @@ controls that quietly do nothing.
 
 **Library tools**
 
-Three jobs a library assembled from downloads always needs, and that nobody ever
-does one track at a time. All three are in Settings → Library tools.
+The jobs a library assembled from downloads always needs, and that nobody ever
+does one track at a time. All of them are in Settings → Library tools.
 
 - **Fix names** — reads the artist and title out of the filename for tracks that
   arrived with no usable tags, and shows how it read every one before anything
@@ -308,6 +308,42 @@ is broken.
 - One session shared by the app, the notification, the widget, Bluetooth
   remotes and Android Auto — there is never a second queue to keep in sync
 
+## Saving into files
+
+Settings → Library tools → **Save into files** writes Spindle's corrections into
+the audio files themselves, so other players, a car stereo and a computer see
+them too. Every file is listed with each field as the file has it now and what
+it will become. Nothing is written until you confirm, and then Android asks
+again in its own consent dialog.
+
+Your files cannot be replaced, so each one goes through these checks:
+
+1. **A private copy is edited, never the file.** The tags are written into a
+   copy of the file inside Spindle's own storage.
+2. **The sound has to be byte-for-byte the same.** Spindle fingerprints only the
+   audio region, before and after: MPEG frames for MP3, the frames after the
+   last metadata block for FLAC, the `mdat` contents for M4A. The fingerprints
+   must match. This was cross-checked by decoding test files with FFmpeg before
+   and after a write: the decoded audio is identical.
+3. **The new tags have to read back, and nothing else may move.** Genre,
+   composer, lyrics, disc number, track total, album artist, comment and the
+   embedded cover art must all come through unchanged. "Track 3 of 12" becoming
+   "track 5" with the total lost counts as damage and rejects the copy.
+4. **A backup is taken and checked before the file is touched.** A journal
+   records the save before the first byte is written.
+5. **The file is read back after writing.** If it doesn't match the verified
+   copy exactly, the backup is written back and read back in turn.
+6. **An interruption is settled from the journal.** If the phone dies part way,
+   Spindle looks at what the file holds next time: the new version, the old one,
+   or neither. If it's neither, the backup goes back. Settings says so if this
+   ever happens.
+
+Originals from the last save are kept, so **Undo last save** puts them back byte
+for byte. It leaves alone any file that something else has changed since. A
+file that is playing is never rewritten; its save waits until the song
+changes. Anything that fails a check is left exactly as it was, and the report
+says why.
+
 ## Getting the APK
 
 Every push builds a debug APK in GitHub Actions.
@@ -369,6 +405,8 @@ data/
   lyrics/     LRC parser, ID3/Vorbis/MP4 tag readers
   repo/       Library, statistics, collections, smart playlists
   settings/   DataStore preferences
+  tagfiles/   Writing corrections into files: audio fingerprint, the
+              verified tag writer, and the backup/journal that replaces files
 playback/
   PlaybackService     Media3 MediaSessionService — the single owner of playback
   PlayCountTracker    Decides when a track counts as played
@@ -442,8 +480,11 @@ measured one.
 - The fast-scroll rail thins its stops to what fits a phone's height, so on a
   library spanning many years the date-added rail lands a few rows off rather
   than exactly.
-- Editing song details changes how Spindle shows a track, not the tags inside
-  the file. Other apps will still see the original metadata.
+- Saving corrections into files needs Android 11 or newer, and covers MP3,
+  FLAC and M4A. Other formats keep their corrections in Spindle only.
+- A save into the song that is playing waits until the song changes, and is
+  forgotten if Spindle is closed first. The correction itself is kept either
+  way, and Save into files will offer it again.
 - Importing requires Android 10 or newer (see above).
 - Android Auto will not list a sideloaded build until Unknown sources is
   enabled in its developer settings (see above). Nothing in the app can work

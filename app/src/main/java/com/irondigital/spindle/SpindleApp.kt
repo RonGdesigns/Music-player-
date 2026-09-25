@@ -13,6 +13,7 @@ import com.irondigital.spindle.data.repo.GainRepository
 import com.irondigital.spindle.data.repo.LibraryRepository
 import com.irondigital.spindle.data.repo.SmartPlaylistProvider
 import com.irondigital.spindle.data.repo.StatsRepository
+import com.irondigital.spindle.data.tagfiles.FileTagSaver
 import com.irondigital.spindle.data.settings.SettingsStore
 import com.irondigital.spindle.playback.EqualizerCapabilities
 import com.irondigital.spindle.playback.PlaybackSnapshotStore
@@ -78,6 +79,11 @@ class SpindleApp : Application() {
      * set of bands as though the answer were known.
      */
     val equalizerCapabilities = MutableStateFlow<EqualizerCapabilities?>(null)
+
+    /** The media id loaded in the player, published by the playback service. */
+    val nowPlayingId = MutableStateFlow<String?>(null)
+
+    val tagSaver: FileTagSaver by lazy { FileTagSaver(this, library, nowPlayingId, applicationScope) }
 
     val listening by lazy { com.irondigital.spindle.data.personal.ListeningStore(this) }
     val customArtwork by lazy { com.irondigital.spindle.data.personal.CustomArtwork(this) }

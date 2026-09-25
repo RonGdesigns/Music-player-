@@ -22,7 +22,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -39,24 +41,29 @@ import com.irondigital.spindle.ui.theme.Steel
 /**
  * Corrects a track's details.
  *
- * What this saves is an override, not a rewritten file. Rewriting the audio
- * file's own tags would mean a tag-writing library, per-file write consent from
- * Android 10 onwards, and a real risk of damaging something the user cannot
- * replace. An override is undoable, needs no permission, and survives a
- * MediaStore rescan — so the sheet says plainly what it does rather than
- * implying the file changed.
+ * What this always saves is an override: undoable, needing no permission, and
+ * surviving a MediaStore rescan. Writing the correction into the file as well
+ * is a separate, opt-in step — [fileOption] — because it changes something the
+ * user cannot get back from Spindle alone, and so it goes through its own
+ * checks and Android's own consent.
  *
- * A field left exactly as the file reported it is saved as "no correction", so
- * fixing only the artist does not freeze the title against a future retag.
+ * A field left exactly as the *file* reports it is saved as "no correction", so
+ * fixing only the artist neither freezes the title against a future retag nor
+ * erases a title correction made earlier.
  */
 @Composable
 fun EditTrackSheet(
     track: Track,
+    /** The track as its file describes it, before any correction. */
+    fileTrack: Track?,
     existing: TrackEdit?,
-    onSave: (TrackEdit) -> Unit,
+    fileOption: FileSaveOption,
+    onSave: (edit: TrackEdit, alsoIntoFile: Boolean) -> Unit,
     onRevert: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val base = fileTrack ?: track
+    var alsoIntoFile by remember(track.mediaId) { mutableStateOf(false) }
     var title by remember(track.mediaId) { mutableStateOf(track.title) }
     var artist by remember(track.mediaId) { mutableStateOf(track.artist) }
     var album by remember(track.mediaId) { mutableStateOf(track.album) }
@@ -96,13 +103,41 @@ fun EditTrackSheet(
                 }
 
                 Spacer(Modifier.height(Space.s))
-                Text(
-                    text = "This changes how Spindle shows the track. The file on " +
-                        "disk is left exactly as it is, so nothing can be corrupted " +
-                        "and you can undo it at any time.",
-                    style = SpindleType.Data,
-                    color = Steel.Dim,
-                )
+                if (fileOption == FileSaveOption.Unavailable) {
+                    Text(
+                        text = "This changes how Spindle shows the track. The file on " +
+                            "disk is left exactly as it is, and you can undo it at any time.",
+                        style = SpindleType.Data,
+                        color = Steel.Dim,
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(role = Role.Checkbox) { alsoIntoFile = !alsoIntoFile }
+                            .padding(vertical = Space.s),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        SelectionLamp(alsoIntoFile)
+                        Spacer(Modifier.width(Space.m))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Also save into the file", style = SpindleType.RowTitle, color = Ink.Primary)
+                            Text(
+                                text = if (alsoIntoFile) {
+                                    "Checked before and after writing. Undo it from Library " +
+                                        "tools, Save into files." +
+                                        if (fileOption == FileSaveOption.AfterThisSong) {
+                                            " This song is playing, so it is written when the song changes."
+                                        } else ""
+                                } else {
+                                    "Otherwise only Spindle shows the change, and the file stays as it is."
+                                },
+                                style = SpindleType.Data,
+                                color = Steel.Dim,
+                            )
+                        }
+                    }
+                }
 
                 if (hasOverride) {
                     Spacer(Modifier.height(Space.m))
@@ -124,16 +159,17 @@ fun EditTrackSheet(
                     onSave(
                         TrackEdit(
                             mediaId = track.mediaId,
-                            // Only store a field the user actually changed, so an
+                            // Only store a field that differs from the file, so an
                             // untouched one still follows the file if it is retagged.
-                            title = title.trim().takeIf { it != track.title && it.isNotBlank() },
-                            artist = artist.trim().takeIf { it != track.artist && it.isNotBlank() },
-                            album = album.trim().takeIf { it != track.album && it.isNotBlank() },
-                            year = year.toIntOrNull()?.takeIf { it != track.year && it in 1..9999 },
+                            title = title.trim().takeIf { it != base.title && it.isNotBlank() },
+                            artist = artist.trim().takeIf { it != base.artist && it.isNotBlank() },
+                            album = album.trim().takeIf { it != base.album && it.isNotBlank() },
+                            year = year.toIntOrNull()?.takeIf { it != base.year && it in 1..9999 },
                             trackNumber = trackNumber.toIntOrNull()
-                                ?.takeIf { it != track.trackNumber && it in 1..999 },
+                                ?.takeIf { it != base.trackNumber && it in 1..999 },
                             updatedAt = System.currentTimeMillis(),
-                        )
+                        ),
+                        alsoIntoFile && fileOption != FileSaveOption.Unavailable,
                     )
                 },
             ) {
@@ -147,6 +183,9 @@ fun EditTrackSheet(
         },
     )
 }
+
+/** Whether the sheet offers to write the correction into the file too. */
+enum class FileSaveOption { Unavailable, Now, AfterThisSong }
 
 @Composable
 private fun Field(

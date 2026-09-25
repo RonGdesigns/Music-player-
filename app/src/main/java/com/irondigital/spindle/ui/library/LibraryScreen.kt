@@ -1,5 +1,14 @@
 package com.irondigital.spindle.ui.library
 
+import android.app.Activity
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.result.IntentSenderRequest
+import androidx.compose.ui.platform.LocalContext
+import com.irondigital.spindle.spindle
+import com.irondigital.spindle.data.tagfiles.AudioContainer
+import com.irondigital.spindle.data.tagfiles.SaveItem
+import com.irondigital.spindle.ui.components.FileSaveOption
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -782,6 +791,11 @@ private fun SongsTab(
 /**
  * Loads any existing correction before showing the sheet, so reopening it shows
  * what the user last typed rather than starting from the file again.
+ *
+ * Also hosts the consent step when the correction is to go into the file. The
+ * sheet closes as soon as Save is pressed, but this stays in place, invisible,
+ * until Android's consent dialog answers — the answer would otherwise arrive
+ * with nobody listening for it.
  */
 @Composable
 fun EditTrackHost(
@@ -789,21 +803,66 @@ fun EditTrackHost(
     libraryViewModel: LibraryViewModel,
     onDismiss: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val app = context.spindle
+    val saver = app.tagSaver
     var existing by remember(track.mediaId) { mutableStateOf<TrackEdit?>(null) }
     var loaded by remember(track.mediaId) { mutableStateOf(false) }
+    var awaitingConsent by remember(track.mediaId) { mutableStateOf<SaveItem?>(null) }
+    val playing by app.nowPlayingId.collectAsStateWithLifecycle()
+    val fileTrack = remember(track.mediaId) { app.library.scannedTrackFor(track.mediaId) }
+
+    val consent = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        val item = awaitingConsent
+        awaitingConsent = null
+        if (result.resultCode == Activity.RESULT_OK && item != null) {
+            if (item.id == app.nowPlayingId.value) {
+                Toast.makeText(context, "Saved in Spindle. The file is written when this song changes.", Toast.LENGTH_LONG).show()
+            }
+            saver.saveWhenFree(item)
+        } else {
+            Toast.makeText(context, "Saved in Spindle only. The file was not changed.", Toast.LENGTH_LONG).show()
+        }
+        onDismiss()
+    }
 
     LaunchedEffect(track.mediaId) {
         existing = libraryViewModel.editFor(track.mediaId)
         loaded = true
     }
-    if (!loaded) return
+    if (!loaded || awaitingConsent != null) return
+
+    val fileOption = when {
+        !saver.supported || fileTrack == null ||
+            AudioContainer.forFileName(fileTrack.displayName) == null -> FileSaveOption.Unavailable
+        track.mediaId == playing -> FileSaveOption.AfterThisSong
+        else -> FileSaveOption.Now
+    }
 
     EditTrackSheet(
         track = track,
+        fileTrack = fileTrack,
         existing = existing,
-        onSave = {
-            libraryViewModel.saveEdit(it)
-            onDismiss()
+        fileOption = fileOption,
+        onSave = { edit, alsoIntoFile ->
+            libraryViewModel.saveEdit(edit)
+            val changes = if (alsoIntoFile) saver.changesFor(track.mediaId, edit) else null
+            val sender = if (changes != null && fileTrack != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                saver.writeRequest(listOf(track.mediaId))
+            } else {
+                null
+            }
+            if (changes == null || fileTrack == null || sender == null) {
+                if (alsoIntoFile && changes == null) {
+                    Toast.makeText(context, "The file already says this.", Toast.LENGTH_SHORT).show()
+                }
+                onDismiss()
+            } else {
+                awaitingConsent = SaveItem(track.mediaId, fileTrack.displayName, changes)
+                consent.launch(IntentSenderRequest.Builder(sender).build())
+            }
         },
         onRevert = {
             libraryViewModel.clearEdit(track.mediaId)

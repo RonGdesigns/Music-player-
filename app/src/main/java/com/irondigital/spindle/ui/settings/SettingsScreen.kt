@@ -101,6 +101,7 @@ fun SettingsScreen(
     onOpenAutoTag: () -> Unit,
     onOpenDuplicates: () -> Unit,
     onOpenBatchEdit: () -> Unit,
+    onOpenSaveToFiles: () -> Unit,
 ) {
     val viewModel: SettingsViewModel = viewModel()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
@@ -108,6 +109,7 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
 
     var confirmingReset by remember { mutableStateOf(false) }
+    val interruptedSaves by context.spindle.tagSaver.pendingCount.collectAsStateWithLifecycle()
 
     val recordAudioLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -474,7 +476,7 @@ fun SettingsScreen(
             item {
                 SettingsSection("Library tools") {
                     Text(
-                        text = "Three jobs a library assembled from downloads always " +
+                        text = "The jobs a library assembled from downloads always " +
                             "needs and nobody ever does by hand.",
                         style = SpindleType.Secondary,
                         color = Steel.Dim,
@@ -502,6 +504,21 @@ fun SettingsScreen(
                             "original.",
                         onClick = onOpenDuplicates,
                     )
+                    ToolRow(
+                        title = "Save into files",
+                        description = "Writes your corrections into the files themselves, " +
+                            "so other players and your car see them too. Checked " +
+                            "before and after, and undoable.",
+                        onClick = onOpenSaveToFiles,
+                    )
+                    if (interruptedSaves > 0) {
+                        Text(
+                            text = "A save into a file was interrupted. Open Save into " +
+                                "files to put it right.",
+                            style = SpindleType.Secondary,
+                            color = SignalRed,
+                        )
+                    }
                 }
             }
 
