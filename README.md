@@ -338,6 +338,13 @@ Your files cannot be replaced, so each one goes through these checks:
    or neither. If it's neither, the backup goes back. Settings says so if this
    ever happens.
 
+Dates are kept too. The date a song was added, which is what Recently added
+and sorting by date go by, never changes, because the file is rewritten in place
+rather than replaced. The file's modified date, which file managers show, is set
+back to what it was after every save, undo and recovery. Android can refuse
+that for a file another app created. If it does, the report says so, and only
+the file manager's date is affected.
+
 Originals from the last save are kept, so **Undo last save** puts them back byte
 for byte. It leaves alone any file that something else has changed since. A
 file that is playing is never rewritten; its save waits until the song
