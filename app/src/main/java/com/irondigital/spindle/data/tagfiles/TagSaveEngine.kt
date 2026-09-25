@@ -18,15 +18,6 @@ interface MediaFiles {
 
     /** Replaces the file's bytes with [source]'s. Throws if it cannot. */
     fun write(id: String, source: File)
-
-    /** When the file was last modified, in epoch milliseconds, or null if unknown. */
-    fun modifiedTime(id: String): Long? = null
-
-    /**
-     * Sets the file's modified time. Returns true only if it took — Android may
-     * refuse it for a file another app created.
-     */
-    fun setModifiedTime(id: String, millis: Long): Boolean = false
 }
 
 /** One file to correct. [fileName] supplies the extension the format is judged by. */
@@ -39,11 +30,8 @@ data class SaveItem(
 sealed interface SaveOutcome {
     val id: String
 
-    /**
-     * The file now carries the new tags, and reading it back proved it.
-     * [keptDate] says whether its modified date was put back as it was.
-     */
-    data class Saved(override val id: String, val keptDate: Boolean = true) : SaveOutcome
+    /** The file now carries the new tags, and reading it back proved it. */
+    data class Saved(override val id: String) : SaveOutcome
 
     /** Nothing was written. The file is exactly as it was. */
     data class Skipped(override val id: String, val reason: String) : SaveOutcome
@@ -69,8 +57,6 @@ data class JournalEntry(
     val originalSha: String,
     val newSha: String,
     val state: State,
-    /** The file's modified time before the save, in epoch milliseconds; 0 if unknown. */
-    val modifiedAt: Long = 0,
 ) {
     enum class State {
         /**
@@ -185,14 +171,13 @@ class TagSaveEngine(
 
             // Recorded before the first byte is written, so an interruption from
             // here on is always found and settled by recover().
-            val modifiedAt = runCatching { files.modifiedTime(id) }.getOrNull() ?: 0L
-            val entry = JournalEntry(id, item.fileName, originalSha, newSha, JournalEntry.State.IN_PROGRESS, modifiedAt)
+            val entry = JournalEntry(id, item.fileName, originalSha, newSha, JournalEntry.State.IN_PROGRESS)
             persist(journal() + entry)
 
             val landed = runCatching { files.write(id, edited) }.isSuccess && holds(id, newSha)
             if (landed) {
                 replace(entry.copy(state = JournalEntry.State.SAVED))
-                return SaveOutcome.Saved(id, keptDate = keepDate(entry))
+                return SaveOutcome.Saved(id)
             }
 
             return if (restore(entry)) {
@@ -216,8 +201,8 @@ class TagSaveEngine(
      * Returns true once the file is known to be whole — new or original.
      */
     fun recover(entry: JournalEntry): Boolean = when (currentSha(entry.id)) {
-        entry.newSha -> { keepDate(entry); replace(entry.copy(state = JournalEntry.State.SAVED)); true }
-        entry.originalSha -> { keepDate(entry); forget(entry); true }
+        entry.newSha -> { replace(entry.copy(state = JournalEntry.State.SAVED)); true }
+        entry.originalSha -> { forget(entry); true }
         else -> restore(entry).also { if (it) forget(entry) }
     }
 
@@ -247,22 +232,7 @@ class TagSaveEngine(
     private fun restore(entry: JournalEntry): Boolean {
         val backup = backupFor(entry.id, entry.fileName)
         if (!backup.exists() || sha(backup) != entry.originalSha) return false
-        val landed = runCatching { files.write(entry.id, backup) }.isSuccess && holds(entry.id, entry.originalSha)
-        if (landed) keepDate(entry)
-        return landed
-    }
-
-    /**
-     * Puts the file's modified date back to what it was before the save.
-     *
-     * Writing a file stamps it with today's date, and file managers show that
-     * date — so a song kept for years would look as if it arrived today. The
-     * contents are what matter and are already verified; this is best effort,
-     * and a refusal is reported rather than treated as a failed save.
-     */
-    private fun keepDate(entry: JournalEntry): Boolean {
-        if (entry.modifiedAt <= 0) return false
-        return runCatching { files.setModifiedTime(entry.id, entry.modifiedAt) }.getOrDefault(false)
+        return runCatching { files.write(entry.id, backup) }.isSuccess && holds(entry.id, entry.originalSha)
     }
 
     private fun holds(id: String, expected: String): Boolean = currentSha(id) == expected
@@ -304,7 +274,6 @@ class TagSaveEngine(
                 originalSha = o.getString("originalSha"),
                 newSha = o.getString("newSha"),
                 state = JournalEntry.State.valueOf(o.getString("state")),
-                modifiedAt = o.optLong("modifiedAt", 0L),
             )
         }
     }
@@ -324,7 +293,6 @@ class TagSaveEngine(
                     .put("originalSha", e.originalSha)
                     .put("newSha", e.newSha)
                     .put("state", e.state.name)
-                    .put("modifiedAt", e.modifiedAt)
             )
         }
         val next = File(root, "journal.json.next")

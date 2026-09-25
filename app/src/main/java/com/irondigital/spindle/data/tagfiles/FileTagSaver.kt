@@ -47,8 +47,6 @@ data class SaveReport(
     val skipped: List<Pair<String, String>>,
     val rolledBack: Int,
     val needsRecovery: Int,
-    /** Saved files whose modified date Android would not let Spindle put back. */
-    val datesNotKept: Int = 0,
 )
 
 /**
@@ -194,7 +192,6 @@ class FileTagSaver(
         var saved = 0
         var rolledBack = 0
         var needsRecovery = 0
-        var datesNotKept = 0
         val skipped = mutableListOf<Pair<String, String>>()
         val savedIds = mutableListOf<String>()
 
@@ -209,11 +206,7 @@ class FileTagSaver(
                     skipped += nameOf(item) to "It started playing. Save it once the song changes."
                 } else {
                     when (val outcome = engine.save(item)) {
-                        is SaveOutcome.Saved -> {
-                            saved++
-                            savedIds += item.id
-                            if (!outcome.keptDate) datesNotKept++
-                        }
+                        is SaveOutcome.Saved -> { saved++; savedIds += item.id }
                         is SaveOutcome.Skipped -> skipped += nameOf(item) to outcome.reason
                         is SaveOutcome.RolledBack -> rolledBack++
                         is SaveOutcome.NeedsRecovery -> needsRecovery++
@@ -224,7 +217,7 @@ class FileTagSaver(
         }
         afterWrites(savedIds)
         _progress.value = null
-        return SaveReport(saved, skipped, rolledBack, needsRecovery, datesNotKept)
+        return SaveReport(saved, skipped, rolledBack, needsRecovery)
     }
 
     private suspend fun saveWaiting(playing: String?) {
@@ -235,10 +228,8 @@ class FileTagSaver(
         val report = run(ready)
         withContext(Dispatchers.Main) {
             val message = when {
-                report.saved == ready.size -> {
-                    val saved = if (ready.size == 1) "Saved into the file" else "Saved into ${report.saved} files"
-                    if (report.datesNotKept > 0) "$saved. Android would not keep the modified date." else saved
-                }
+                report.saved == ready.size ->
+                    if (ready.size == 1) "Saved into the file" else "Saved into ${report.saved} files"
                 report.skipped.isNotEmpty() -> "Not saved into the file: ${report.skipped.first().second}"
                 else -> "Not saved into the file. It is exactly as it was."
             }
@@ -287,25 +278,6 @@ class FileTagSaver(
 
     /** Library files through MediaStore. */
     private inner class ResolverFiles : MediaFiles {
-        private fun fileFor(id: String): File? = library.scannedTrackFor(id)?.filePath?.let(::File)
-
-        override fun modifiedTime(id: String): Long? =
-            fileFor(id)?.lastModified()?.takeIf { it > 0 }
-                ?: library.scannedTrackFor(id)?.dateModifiedSec?.takeIf { it > 0 }?.times(1000)
-
-        /**
-         * Through the file's path, which Android allows once the user has
-         * granted write access to it. Read back afterwards, because on some
-         * storage a refusal comes back as success; two seconds of slack covers
-         * cards whose filesystem only keeps even seconds.
-         */
-        override fun setModifiedTime(id: String, millis: Long): Boolean {
-            val file = fileFor(id) ?: return false
-            return runCatching {
-                file.setLastModified(millis) && kotlin.math.abs(file.lastModified() - millis) <= 2_000
-            }.getOrDefault(false)
-        }
-
         override fun read(id: String, target: File) {
             val input = resolver.openInputStream(uriFor(id)) ?: throw IOException("no input stream")
             input.use { source -> target.outputStream().use { source.copyTo(it) } }

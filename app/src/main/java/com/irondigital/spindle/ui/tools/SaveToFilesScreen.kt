@@ -311,22 +311,6 @@ fun SaveToFilesScreen(onBack: () -> Unit) {
                         )
                         Spacer(Modifier.height(Space.s))
                     }
-                    if (done.datesNotKept > 0) {
-                        Text(
-                            text = if (done.datesNotKept == done.saved) {
-                                "Android would not let Spindle keep the modified date, so " +
-                                    "file managers will show today's date. The date added, " +
-                                    "which Spindle goes by, is unchanged."
-                            } else {
-                                "${done.datesNotKept} now show today's modified date in file " +
-                                    "managers; Android would not let it be kept. The date " +
-                                    "added, which Spindle goes by, is unchanged."
-                            },
-                            style = SpindleType.Body,
-                            color = Steel.Bright,
-                        )
-                        Spacer(Modifier.height(Space.s))
-                    }
                     if (done.needsRecovery > 0) {
                         Text(
                             text = "${done.needsRecovery} could not be confirmed either way. " +
