@@ -321,6 +321,21 @@ Every push builds a debug APK in GitHub Actions.
 The debug build uses the application ID `com.irondigital.spindle.debug`, so it
 installs alongside a release build rather than replacing it.
 
+**Every build is signed with the same key**, committed as
+`app/spindle-debug.keystore`, so a new APK installs over the old one in place and
+keeps your play counts, favorites and playlists. Before that key existed, each CI
+run signed with a key generated fresh on that run's machine, so no two APKs
+matched and Android would only take a new one after an uninstall — which deletes
+the app's data. If you are moving from one of those older builds, it takes one
+last uninstall:
+
+1. In the old build, **Settings → Backup → Save a backup file**
+2. Uninstall Spindle
+3. Install the new APK
+4. **Settings → Backup → Restore from a backup file**
+
+After that, updates just install.
+
 ### Building locally
 
 Android Studio: open the project and run. From the command line:

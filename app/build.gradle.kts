@@ -23,10 +23,33 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // One signing key for every build, committed with the project.
+    //
+    // Without this, each build signs with whatever debug key the machine it
+    // runs on happens to have — and a CI runner starts fresh every time, so
+    // every APK came out signed differently. Android refuses to install an
+    // update over an app signed with a different key, which leaves uninstalling
+    // as the only way forward, and uninstalling deletes the play counts,
+    // favorites and playlists with it. A fixed key means every future build
+    // installs over the last one in place.
+    //
+    // This is a debug key with the standard debug password, not a secret. It
+    // exists so a personal sideloaded build can be updated; anything published
+    // to a store would need a real key kept out of the repository.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("spindle-debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            signingConfig = signingConfigs.getByName("debug")
         }
         release {
             isMinifyEnabled = true
