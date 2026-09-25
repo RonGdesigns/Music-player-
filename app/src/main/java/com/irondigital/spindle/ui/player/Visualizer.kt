@@ -9,11 +9,13 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -23,6 +25,7 @@ import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.platform.LocalContext
 import com.irondigital.spindle.data.settings.VisualizerMode
 import com.irondigital.spindle.ui.theme.ArtworkColors
@@ -98,47 +101,76 @@ fun ArtworkVisualizer(
 
     val grain = rememberGrain(colors.dominant)
 
-    Canvas(modifier) {
-        // Reduced motion resolves to a composed still, not to an empty screen.
-        val slow = if (animationsDisabled) STILL_PHASE else drift.value
-        val phase = slow * 2f * PI.toFloat()
-        val bands = levels.value
+    // Everything that depends only on the colors and the size of the screen is
+    // built once here and reused every frame. Before, each frame rebuilt the
+    // background gradient, a gradient and two colour copies per blob, a path
+    // and a gradient for the spectrum, and a list just to average four
+    // numbers — a few hundred short-lived objects a second at sixty frames,
+    // every one of them garbage for the collector to sweep up while the
+    // lyrics were scrolling over the top. The cache is rebuilt only when the
+    // size or the record changes. The animated values are read inside the
+    // draw block, never in the cache block, or the cache would be rebuilt on
+    // every frame and save nothing.
+    Spacer(
+        modifier.drawWithCache {
+            val backField = Brush.verticalGradient(
+                colors = listOf(
+                    colors.dominant,
+                    lerpToward(colors.dominant, Ground.Deep, 0.55f),
+                    Ground.Deep,
+                ),
+                startY = 0f,
+                endY = size.height,
+            )
 
-        drawBackField(colors)
-        drawMidPlane(colors, phase, bands, mode)
-        drawSpectrumSilhouette(colors, bands, mode)
-        // Grain last: it is the plane nearest the eye, and the earliest proof a
-        // person made this rather than accepting a flat fill.
-        drawRect(brush = grain)
-    }
-}
+            // Unit-sized and centred on the origin, then moved and scaled into
+            // place each frame. The blobs change position and size constantly
+            // but never shape, so there is no reason to rebuild what they look
+            // like — only where they are.
+            val vibrantBlob = unitBlob(colors.vibrant, alpha = 0.34f)
+            val mutedBlob = unitBlob(colors.muted, alpha = 0.30f)
 
-/** BACK — lowest contrast, does not move. The wall the rest sits in front of. */
-private fun DrawScope.drawBackField(colors: ArtworkColors) {
-    drawRect(
-        brush = Brush.verticalGradient(
-            colors = listOf(
-                colors.dominant,
-                lerpToward(colors.dominant, Ground.Deep, 0.55f),
-                Ground.Deep,
-            ),
-            startY = 0f,
-            endY = size.height,
-        )
+            val silhouetteHeight = size.height * SILHOUETTE_HEIGHT
+            val silhouette = Brush.verticalGradient(
+                colors = listOf(colors.vibrant.copy(alpha = 0.30f), colors.vibrant.copy(alpha = 0.06f)),
+                startY = size.height - silhouetteHeight,
+                endY = size.height,
+            )
+            val contour = Path()
+
+            onDrawBehind {
+                // Reduced motion resolves to a composed still, not to an empty screen.
+                val slow = if (animationsDisabled) STILL_PHASE else drift.value
+                val phase = slow * 2f * PI.toFloat()
+                val bands = levels.value
+
+                drawRect(brush = backField)
+                drawMidPlane(vibrantBlob, mutedBlob, phase, bands, mode)
+                drawSpectrumSilhouette(contour, silhouette, silhouetteHeight, bands, mode)
+                // Grain last: it is the plane nearest the eye, and the earliest proof a
+                // person made this rather than accepting a flat fill.
+                drawRect(brush = grain)
+            }
+        }
     )
 }
 
 /** MID — the subject. Two soft bodies on slow, unequal orbits. */
 private fun DrawScope.drawMidPlane(
-    colors: ArtworkColors,
+    vibrantBlob: Brush,
+    mutedBlob: Brush,
     phase: Float,
     levels: FloatArray,
     mode: VisualizerMode,
 ) {
     // Low-band energy, which is what actually corresponds to the pulse a
-    // listener feels. Mid and top bands would make it twitch.
+    // listener feels. Mid and top bands would make it twitch. Summed by hand:
+    // take(4).average() built a new list every frame to add four numbers.
     val bass = if (mode == VisualizerMode.AUDIO_REACTIVE && levels.isNotEmpty()) {
-        levels.take(4).average().toFloat()
+        val count = minOf(4, levels.size)
+        var sum = 0f
+        for (i in 0 until count) sum += levels[i]
+        sum / count
     } else {
         0f
     }
@@ -148,37 +180,40 @@ private fun DrawScope.drawMidPlane(
 
     // Unequal periods, so the two never settle into a visible loop.
     drawBlob(
-        color = colors.vibrant,
-        center = Offset(
-            x = size.width * (0.28f + 0.16f * sin(phase)),
-            y = size.height * (0.30f + 0.10f * sin(phase * 0.77f + 1.1f)),
-        ),
+        brush = vibrantBlob,
+        centerX = size.width * (0.28f + 0.16f * sin(phase)),
+        centerY = size.height * (0.30f + 0.10f * sin(phase * 0.77f + 1.1f)),
         radius = shortest * 0.62f * swell,
-        alpha = 0.34f,
     )
 
     drawBlob(
-        color = colors.muted,
-        center = Offset(
-            x = size.width * (0.74f + 0.14f * sin(phase * 0.63f + 2.4f)),
-            y = size.height * (0.62f + 0.12f * sin(phase * 0.91f)),
-        ),
+        brush = mutedBlob,
+        centerX = size.width * (0.74f + 0.14f * sin(phase * 0.63f + 2.4f)),
+        centerY = size.height * (0.62f + 0.12f * sin(phase * 0.91f)),
         radius = shortest * 0.54f * (1f + bass * 0.28f),
-        alpha = 0.30f,
     )
 }
 
-private fun DrawScope.drawBlob(color: Color, center: Offset, radius: Float, alpha: Float) {
+/** A soft body of radius one at the origin, to be moved and scaled into place. */
+private fun unitBlob(color: Color, alpha: Float): Brush = Brush.radialGradient(
+    colors = listOf(color.copy(alpha = alpha), color.copy(alpha = 0f)),
+    center = Offset.Zero,
+    radius = 1f,
+)
+
+/**
+ * Draws a unit blob at a position and size. The transform carries the
+ * gradient with it, so the result is pixel for pixel what building a fresh
+ * gradient at that position and radius would have drawn.
+ */
+private fun DrawScope.drawBlob(brush: Brush, centerX: Float, centerY: Float, radius: Float) {
     if (radius <= 0f) return
-    drawCircle(
-        brush = Brush.radialGradient(
-            colors = listOf(color.copy(alpha = alpha), color.copy(alpha = 0f)),
-            center = center,
-            radius = radius,
-        ),
-        radius = radius,
-        center = center,
-    )
+    withTransform({
+        translate(centerX, centerY)
+        scale(radius, radius, pivot = Offset.Zero)
+    }) {
+        drawCircle(brush = brush, radius = 1f, center = Offset.Zero)
+    }
 }
 
 /**
@@ -187,40 +222,34 @@ private fun DrawScope.drawBlob(color: Color, center: Offset, radius: Float, alph
  * horizon, which is what a foreground plane needs to be.
  */
 private fun DrawScope.drawSpectrumSilhouette(
-    colors: ArtworkColors,
+    contour: Path,
+    brush: Brush,
+    maxHeight: Float,
     levels: FloatArray,
     mode: VisualizerMode,
 ) {
     if (mode != VisualizerMode.AUDIO_REACTIVE || levels.isEmpty()) return
     if (levels.all { it <= 0.01f }) return
 
-    val maxHeight = size.height * 0.22f
     val step = size.width / (levels.size - 1).coerceAtLeast(1)
 
-    val path = Path().apply {
-        moveTo(0f, size.height)
-        lineTo(0f, size.height - levels[0] * maxHeight)
-        for (i in 1 until levels.size) {
-            val x = i * step
-            val y = size.height - levels[i] * maxHeight
-            val previousX = (i - 1) * step
-            val previousY = size.height - levels[i - 1] * maxHeight
-            // Smoothed through the midpoint, so the contour has no hard corners
-            // even at twenty-four bands.
-            quadraticBezierTo(previousX, previousY, (previousX + x) / 2f, (previousY + y) / 2f)
-        }
-        lineTo(size.width, size.height)
-        close()
+    // One path, reset and redrawn, rather than a new one every frame.
+    contour.reset()
+    contour.moveTo(0f, size.height)
+    contour.lineTo(0f, size.height - levels[0] * maxHeight)
+    for (i in 1 until levels.size) {
+        val x = i * step
+        val y = size.height - levels[i] * maxHeight
+        val previousX = (i - 1) * step
+        val previousY = size.height - levels[i - 1] * maxHeight
+        // Smoothed through the midpoint, so the contour has no hard corners
+        // even at twenty-four bands.
+        contour.quadraticTo(previousX, previousY, (previousX + x) / 2f, (previousY + y) / 2f)
     }
+    contour.lineTo(size.width, size.height)
+    contour.close()
 
-    drawPath(
-        path = path,
-        brush = Brush.verticalGradient(
-            colors = listOf(colors.vibrant.copy(alpha = 0.30f), colors.vibrant.copy(alpha = 0.06f)),
-            startY = size.height - maxHeight,
-            endY = size.height,
-        ),
-    )
+    drawPath(path = contour, brush = brush)
 }
 
 /**
@@ -266,3 +295,6 @@ private const val DRIFT_PERIOD_MS = 42_000
 
 /** Where the drift is frozen when the system asks for reduced motion. */
 private const val STILL_PHASE = 0.22f
+
+/** How tall the spectrum silhouette may rise, as a share of the screen. */
+private const val SILHOUETTE_HEIGHT = 0.22f
